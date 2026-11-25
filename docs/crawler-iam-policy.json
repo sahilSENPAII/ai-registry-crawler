@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AiRegistryCrawlerReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListFunctions",
+        "lambda:ListTags",
+        "lambda:GetFunction",
+        "bedrock:ListAgents",
+        "bedrock:GetAgent",
+        "bedrock:ListTagsForResource",
+        "sagemaker:ListEndpoints",
+        "sagemaker:DescribeEndpoint",
+        "sagemaker:DescribeEndpointConfig",
+        "sagemaker:DescribeModel",
+        "sagemaker:ListTags",
+        "states:ListStateMachines",
+        "states:DescribeStateMachine",
+        "states:ListTagsForResource",
+        "ecs:ListTaskDefinitionFamilies",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListTagsForResource",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
