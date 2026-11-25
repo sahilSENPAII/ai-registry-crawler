@@ -3,6 +3,7 @@ import argparse
 from psycopg import sql
 
 from app import aws, db
+from app.crawler.classifier import classify
 from app.crawler.collectors import collect_all
 
 KEY_TAGS = ["owner", "team", "environment", "data-classification", "customer-facing"]
@@ -47,8 +48,24 @@ def collect() -> None:
         print(f"collector error: {error}")
 
 
+def classify_estate() -> None:
+    with aws.simulated_aws():
+        resources, errors = collect_all(aws.session(), aws.lambda_code_fetcher("mock"))
+    results = [(r, classify(r)) for r in resources]
+    print(f"{'NAME':<28}{'AI':<7}{'CATEGORY':<19}{'SCORE':>6}  {'TASK':<20}EVIDENCE")
+    for r, c in results:
+        top = sorted(c.evidence, key=lambda e: e.weight, reverse=True)[:2]
+        print(f"{r.name:<28}{str(c.is_ai):<7}{c.category or '-':<19}{c.agent_score:>6.2f}  {c.task_type or '-':<20}"
+              + "; ".join(f"{e.signal}({e.detail})" for e in top))
+    ai = sum(c.is_ai for _, c in results)
+    print(f"{ai} AI, {sum(c.is_agent for _, c in results)} agents, {len(results) - ai} skipped")
+    for error in errors:
+        print(f"collector error: {error}")
+
+
 def main() -> None:
-    commands = {"init": db.init_schema, "reset": db.reset_data, "tables": tables, "estate": estate, "collect": collect}
+    commands = {"init": db.init_schema, "reset": db.reset_data, "tables": tables, "estate": estate, "collect": collect,
+                "classify": classify_estate}
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     parser.add_argument("cmd", choices=commands)
     commands[parser.parse_args().cmd]()
