@@ -67,6 +67,7 @@ def classify_estate() -> None:
 
 
 def _discover(until):
+    db.init_schema()  # idempotent, so a fresh database works without `cli init`
     with db.connect() as conn:
         return run_discovery(conn, config.discovery_mode, until)
 
