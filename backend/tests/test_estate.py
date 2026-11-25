@@ -7,8 +7,8 @@ import pytest
 from moto import mock_aws
 
 from app import aws
-from app.cli import list_resources
 from app.config import config
+from app.crawler.collectors import collect_all
 from app.seed.agent_logs import seed_agent_logs
 from app.seed.estate import LAMBDA_SRC, seed_estate
 from app.seed.expected import EXPECTED
@@ -54,12 +54,18 @@ def approvals(run):
     return [s["attributes"] for s in run if op(s) == "human_approval"]
 
 
+def collected():
+    resources, errors = collect_all(aws.session(), aws.lambda_code_fetcher("mock"))
+    assert errors == []
+    return resources
+
+
 def test_resource_counts(estate):
-    resources = list_resources()
-    assert Counter(r["service"] for r in resources) == {
+    resources = collected()
+    assert Counter(r.service for r in resources) == {
         "lambda": 8, "bedrock-agent": 1, "sagemaker": 2, "stepfunctions": 2, "ecs": 2,
     }
-    assert sorted(r["name"] for r in resources) == sorted(EXPECTED)
+    assert sorted(r.name for r in resources) == sorted(EXPECTED)
     assert Counter(e["category"] for e in EXPECTED.values()) == {
         "ai_agent": 4, "genai_application": 4, "ai_workflow": 1, "predictive_ml": 2, None: 4,
     }
@@ -122,14 +128,7 @@ def test_seeding_is_deterministic():
 
 
 def test_no_category_giveaways(estate):
-    s = aws.session()
-    pairs = [kv for r in list_resources() for kv in r["tags"].items()]
-    for fn in s.client("lambda").list_functions()["Functions"]:
-        pairs += fn["Environment"]["Variables"].items()
-    ecs = s.client("ecs")
-    for arn in ecs.list_task_definitions()["taskDefinitionArns"]:
-        for container in ecs.describe_task_definition(taskDefinition=arn)["taskDefinition"]["containerDefinitions"]:
-            pairs += [(e["name"], e["value"]) for e in container.get("environment", [])]
+    pairs = [kv for r in collected() for kv in (r.tags | r.env).items()]
     assert pairs
     for key, value in pairs:
         assert key.lower().replace("_", "-") not in GIVEAWAY_KEYS, key
