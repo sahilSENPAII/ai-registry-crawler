@@ -1,9 +1,9 @@
 import Link from "next/link";
 
-import { api } from "@/lib/api";
+import { api, type Outcome } from "@/lib/api";
 import { modelName, money } from "@/lib/format";
 
-import { OUTCOME_LABEL, OutcomeBadge, outcome, type Outcome } from "../_components/RecommendationCard";
+import { OUTCOME_LABEL, OutcomeBadge } from "../_components/RecommendationCard";
 import { Empty, PageHeader } from "../_components/ui";
 
 export default async function Recommendations() {
@@ -13,8 +13,7 @@ export default async function Recommendations() {
   const recommended = priced.reduce((sum, r) => sum + (r.est_monthly_cost_recommended ?? 0), 0);
   const savings = current - recommended;
   const counts = recs.reduce<Partial<Record<Outcome, number>>>((acc, r) => {
-    const o = outcome(r.rationale);
-    acc[o] = (acc[o] ?? 0) + 1;
+    acc[r.outcome] = (acc[r.outcome] ?? 0) + 1;
     return acc;
   }, {});
 
@@ -61,7 +60,7 @@ export default async function Recommendations() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-3">
                         <Link href={`/inventory/${r.registry_id}`} className="text-sm font-medium hover:text-accent">{r.name}</Link>
-                        <OutcomeBadge rationale={r.rationale} />
+                        <OutcomeBadge outcome={r.outcome} />
                       </div>
                       <p className="mt-1 text-sm">
                         <span className="text-ink-2">{modelName(r.current_model)}</span>

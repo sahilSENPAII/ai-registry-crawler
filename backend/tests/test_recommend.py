@@ -40,6 +40,7 @@ def test_recommendation_is_eligible(task, data, risk):
 def test_predictive_ml_keeps_current():
     rec = recommend(record("tabular_prediction", "churn-predictor", category="predictive_ml"), None)
     assert rec["recommended_model"] == rec["current_model"] == "churn-predictor"
+    assert rec["outcome"] == "keep"
     assert rec["rationale"].startswith("Keep") and "tabular prediction" in rec["rationale"]
 
 
@@ -80,12 +81,14 @@ def test_keep():
     rec = recommend(record(model=best), None)
     assert rec["recommended_model"] == best
     assert rec["rationale"].startswith(f"Keep {best}")
+    assert rec["outcome"] == "keep"
     assert rec["est_monthly_cost_current"] == rec["est_monthly_cost_recommended"]
 
 
 def test_downgrade():
     rec = recommend(record(model="anthropic.claude-3-opus-20240229-v1:0"), None)
     assert rec["rationale"].startswith("Downgrade")
+    assert rec["outcome"] == "downgrade"
     assert f"instead of ${rec['est_monthly_cost_current']:,.2f}/mo" in rec["rationale"]
     assert rec["est_monthly_cost_recommended"] < rec["est_monthly_cost_current"]
 
@@ -93,6 +96,7 @@ def test_downgrade():
 def test_upgrade():
     rec = recommend(record("agentic_tool_use", "meta.llama3-1-8b-instruct-v1:0"), None)
     assert rec["rationale"].startswith("Upgrade")
+    assert rec["outcome"] == "upgrade"
     assert "below the bar of 85" in rec["rationale"]
     assert MODELS[rec["recommended_model"]]["capability"] >= 85
 
@@ -100,8 +104,15 @@ def test_upgrade():
 def test_residency_switch():
     rec = recommend(record(model="gpt-4o", data="pii"), None)
     assert rec["rationale"].startswith("Switch from gpt-4o")
+    assert rec["outcome"] == "residency"
     assert "pii data stays in AWS" in rec["rationale"]
     assert MODELS[rec["recommended_model"]]["hosting"] == "bedrock"
+
+
+def test_unknown_current_model_is_a_switch():
+    rec = recommend(record(model="acme-llm-7"), None)
+    assert rec["outcome"] == "switch" and rec["recommended_model"] in MODELS
+    assert rec["current_score"] is None and rec["est_monthly_cost_current"] is None
 
 
 def test_alternatives_are_top_three_others():

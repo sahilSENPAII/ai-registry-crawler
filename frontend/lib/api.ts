@@ -69,6 +69,7 @@ export type Finding = {
 };
 
 export type Alternative = { model: string; score: number; est_monthly_cost: number };
+export type Outcome = "keep" | "downgrade" | "upgrade" | "residency" | "switch";
 
 export type Recommendation = {
   registry_id: string;
@@ -80,6 +81,7 @@ export type Recommendation = {
   recommended_score: number | null;
   est_monthly_cost_current: number | null;
   est_monthly_cost_recommended: number | null;
+  outcome: Outcome;
   rationale: string;
   alternatives: Alternative[];
   created_at: string;

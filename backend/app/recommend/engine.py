@@ -46,7 +46,7 @@ def recommend(record: dict, observed: dict | None) -> dict:
     base = {"registry_id": record["id"], "task_type": record["task_type"], "current_model": current}
     if record["category"] == "predictive_ml":
         return base | {
-            "recommended_model": current, "current_score": None, "recommended_score": None,
+            "outcome": "keep", "recommended_model": current, "current_score": None, "recommended_score": None,
             "est_monthly_cost_current": None, "est_monthly_cost_recommended": None, "alternatives": [],
             "rationale": "Keep the current model: a classical ML model is cheaper and more accurate than an LLM "
                          "for tabular prediction.",
@@ -83,37 +83,39 @@ def recommend(record: dict, observed: dict | None) -> dict:
     best_cost = _monthly_cost(best, profile, requests)
 
     if not known:
-        recommended = best
+        recommended, outcome = best, "switch"
         rationale = f"No catalogued model was detected; {best} is the best fit for {task}"
     elif sensitive and MODELS[current]["hosting"] == "external_api":
-        recommended = best
+        recommended, outcome = best, "residency"
         rationale = (f"Switch from {current} to {best} so {record['data_classification']} data stays in AWS: "
                      f"{current} is an external API, and {best} runs on Bedrock at {_money(best_cost)}/mo "
                      f"instead of {_money(current_cost)}/mo")
     elif not _meets_task(current, profile):
-        recommended = best
+        recommended, outcome = best, "upgrade"
         why = (f"capability {MODELS[current]['capability']} is below the bar of {profile['min_capability']}"
                if MODELS[current]["capability"] < profile["min_capability"] else "it does not support tool use")
         rationale = f"Upgrade to {best}: {current} is not fit for {task} because {why}"
     elif current == best or best_score - current_score <= KEEP_MARGIN:
-        recommended = current
+        recommended, outcome = current, "keep"
         rival_score, rival = next((s, m) for s, m in scores if m != current)
         rationale = (f"Keep {current}: it scores {current_score} for {task} against {rival_score} for the next best, "
                      f"{rival}, at {_money(current_cost)}/mo")
     elif best_cost < current_cost:
-        recommended = best
+        recommended, outcome = best, "downgrade"
         rationale = (f"Downgrade to {best}: it meets the bar for {task} at {_money(best_cost)}/mo "
                      f"instead of {_money(current_cost)}/mo ({best_score} vs {current_score} points)")
     else:
-        recommended = best
+        recommended, outcome = best, "switch"
         rationale = f"Switch to {best}: it scores {best_score} vs {current_score} for {task}, at {_money(best_cost)}/mo"
 
     recommended_score = current_score if recommended == current else best_score
     alternatives = [{"model": m, "score": s, "est_monthly_cost": _monthly_cost(m, profile, requests)}
                     for s, m in scores if m != recommended][:3]
     return base | {
-        "recommended_model": recommended, "current_score": current_score, "recommended_score": recommended_score,
-        "est_monthly_cost_current": current_cost, "est_monthly_cost_recommended": _monthly_cost(recommended, profile, requests),
+        "outcome": outcome, "recommended_model": recommended,
+        "current_score": current_score, "recommended_score": recommended_score,
+        "est_monthly_cost_current": current_cost,
+        "est_monthly_cost_recommended": _monthly_cost(recommended, profile, requests),
         "rationale": f"{rationale}. Based on {tokens}; {volume}.", "alternatives": alternatives,
     }
 

@@ -123,5 +123,6 @@ CREATE TABLE IF NOT EXISTS model_recommendations (
     est_monthly_cost_recommended numeric(12,2),
     rationale                    text,
     alternatives                 jsonb NOT NULL DEFAULT '[]',
+    outcome                      text CHECK (outcome IN ('keep', 'downgrade', 'upgrade', 'residency', 'switch')),
     created_at                   timestamptz NOT NULL DEFAULT now()
 );

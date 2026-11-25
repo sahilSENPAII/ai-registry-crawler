@@ -124,6 +124,9 @@ def test_findings_and_filters(client):
 def test_recommendations(client):
     recs = get(client, "/recommendations")
     assert len(recs) == 11 and all(r["rationale"] for r in recs)
+    assert {r["outcome"] for r in recs} == {"keep", "downgrade", "upgrade", "residency"}
+    refund = next(s for s in get(client, "/systems") if s["name"] == "refund-agent")
+    assert get(client, f"/systems/{refund['id']}")["recommendation"]["outcome"] == "keep"
 
 
 def test_retired_hidden_by_default(client):

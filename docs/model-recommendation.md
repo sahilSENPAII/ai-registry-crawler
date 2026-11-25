@@ -64,12 +64,14 @@ the model's prices.
 
 ## Rationale
 
-| Case | When | Example |
+Each recommendation stores its case in `outcome`, so the dashboard never parses the rationale.
+
+| Case (`outcome`) | When | Example |
 |---|---|---|
-| Residency switch | Current model is an external API and the data is pii/confidential | "Switch from gpt-4o to ... so confidential data stays in AWS" |
-| Upgrade | Current model is below the task bar or lacks needed tool support | "Upgrade to ...: ... is not fit for agentic_tool_use because capability 80 is below the bar of 85" |
-| Keep | Current model is the best, or within 3 points of it | "Keep ...: it scores 74.3 for decision_support against 58.3 for the next best" |
-| Downgrade | A cheaper eligible model scores more than 3 points higher | "Downgrade to ...: it meets the bar for rag at $25.20/mo instead of $165.00/mo" |
-| Switch | A more expensive model scores more than 3 points higher | "Switch to ...: it scores ... vs ..." |
+| Residency switch (`residency`) | Current model is an external API and the data is pii/confidential | "Switch from gpt-4o to ... so confidential data stays in AWS" |
+| Upgrade (`upgrade`) | Current model is below the task bar or lacks needed tool support | "Upgrade to ...: ... is not fit for agentic_tool_use because capability 80 is below the bar of 85" |
+| Keep (`keep`, also every predictive model) | Current model is the best, or within 3 points of it | "Keep ...: it scores 74.3 for decision_support against 58.3 for the next best" |
+| Downgrade (`downgrade`) | A cheaper eligible model scores more than 3 points higher | "Downgrade to ...: it meets the bar for rag at $25.20/mo instead of $165.00/mo" |
+| Switch (`switch`) | A more expensive model scores more than 3 points higher, or no catalogued model was detected | "Switch to ...: it scores ... vs ..." |
 
 Each recommendation also lists the top 3 alternatives with their scores and monthly cost.

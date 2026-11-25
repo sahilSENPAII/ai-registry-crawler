@@ -1,18 +1,7 @@
-import type { Recommendation } from "@/lib/api";
+import type { Outcome, Recommendation } from "@/lib/api";
 import { modelName, money } from "@/lib/format";
 
 import { Card, Tag } from "./ui";
-
-export type Outcome = "keep" | "downgrade" | "upgrade" | "residency" | "switch";
-
-// shortcut: the engine starts every rationale with its branch word; add an outcome field to the API if that changes
-export function outcome(rationale: string): Outcome {
-  if (rationale.startsWith("Keep")) return "keep";
-  if (rationale.startsWith("Downgrade")) return "downgrade";
-  if (rationale.startsWith("Upgrade")) return "upgrade";
-  if (rationale.includes("stays in AWS")) return "residency";
-  return "switch";
-}
 
 export const OUTCOME_LABEL: Record<Outcome, string> = {
   keep: "Keep",
@@ -22,15 +11,14 @@ export const OUTCOME_LABEL: Record<Outcome, string> = {
   switch: "Switch",
 };
 
-export function OutcomeBadge({ rationale }: { rationale: string }) {
-  const o = outcome(rationale);
-  return <Tag tone={o === "keep" ? "neutral" : "accent"}>{OUTCOME_LABEL[o]}</Tag>;
+export function OutcomeBadge({ outcome }: { outcome: Outcome }) {
+  return <Tag tone={outcome === "keep" ? "neutral" : "accent"}>{OUTCOME_LABEL[outcome]}</Tag>;
 }
 
 export function RecommendationCard({ rec }: { rec: Recommendation }) {
   const changes = rec.current_model !== rec.recommended_model;
   return (
-    <Card title="Model fit" aside={<OutcomeBadge rationale={rec.rationale} />}>
+    <Card title="Model fit" aside={<OutcomeBadge outcome={rec.outcome} />}>
       <p className="text-sm">
         <span className="text-ink-2">{modelName(rec.current_model)}</span>
         {changes && (

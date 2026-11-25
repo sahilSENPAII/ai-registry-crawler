@@ -33,8 +33,8 @@ a token spike. It names the rule, its severity, and the trace/span that triggere
 ## model_recommendations
 At most one row per AI system: the current recommendation for which model it should
 use for its task type, with scores and estimated monthly cost for the current and
-recommended models, a rationale and the alternatives considered. A newer
-recommendation replaces the old row. It is deleted with its registry row.
+recommended models, the outcome (`keep`, `downgrade`, `upgrade`, `residency` or `switch`), a
+rationale and the alternatives considered. A newer recommendation replaces the old row. It is deleted with its registry row.
 
 ## Why `ai_registry.id` is a stable hash, not the ARN
 Each scan has to update the same row for the same system, so that `first_seen_at`,
