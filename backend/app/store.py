@@ -71,8 +71,8 @@ def insert_spans(conn, spans, run_id, registry_id=None):
 
 
 def active_registry(conn):
-    return conn.execute("SELECT id, name, service, resource_arn, log_group, tools FROM ai_registry "
-                        "WHERE status = 'active'").fetchall()
+    return conn.execute("SELECT id, name, service, resource_arn, log_group, tools, category, task_type, models, "
+                        "data_classification FROM ai_registry WHERE status = 'active' ORDER BY name").fetchall()
 
 
 def mark_monitored(conn, registry_ids):
@@ -91,6 +91,28 @@ def replace_anomalies(conn, run_id, findings):
               f["description"], Jsonb(f["details"])) for f in findings],
         )
     conn.execute("UPDATE discovery_runs SET findings_count = %s WHERE id = %s", (len(findings), run_id))
+
+
+def observed_requests(conn, since) -> dict:
+    """registry_id -> number of traced runs since `since`."""
+    rows = conn.execute("SELECT registry_id, count(DISTINCT trace_id) AS n FROM agent_traces "
+                        "WHERE registry_id IS NOT NULL AND started_at >= %s GROUP BY registry_id", (since,)).fetchall()
+    return {r["registry_id"]: r["n"] for r in rows}
+
+
+def upsert_recommendation(conn, run_id, rec):
+    record = {**rec, "run_id": run_id, "alternatives": Jsonb(rec["alternatives"])}
+    columns = list(record)
+    conn.execute(
+        sql.SQL("INSERT INTO model_recommendations ({cols}) VALUES ({vals}) ON CONFLICT (registry_id) "
+                "DO UPDATE SET {updates}, created_at = now()").format(
+            cols=sql.SQL(", ").join(map(sql.Identifier, columns)),
+            vals=sql.SQL(", ").join(sql.Placeholder() * len(columns)),
+            updates=sql.SQL(", ").join(sql.SQL("{0} = EXCLUDED.{0}").format(sql.Identifier(c))
+                                       for c in columns if c != "registry_id"),
+        ),
+        [record[c] for c in columns],
+    )
 
 
 def list_registry(conn):

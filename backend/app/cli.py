@@ -5,6 +5,7 @@ from psycopg import sql
 from app import aws, db, store
 from app.crawler.agent import CrawlerAgent
 from app.observability.agent import ObservabilityAgent
+from app.recommend.engine import recommend_all
 from app.crawler.classifier import classify
 from app.crawler.collectors import collect_all
 
@@ -97,9 +98,22 @@ def observe() -> None:
     print(f"{len(summary['findings'])} findings")
 
 
+def recommend() -> None:
+    with aws.simulated_aws(), db.connect() as conn:
+        run_id = CrawlerAgent(aws.session(), aws.lambda_code_fetcher("mock"), conn).run()["run_id"]
+        ObservabilityAgent(aws.session(), conn, run_id).run()
+        results = recommend_all(conn, run_id)
+    for name, rec in results:
+        cost = "-" if rec["est_monthly_cost_current"] is None else \
+            f"${rec['est_monthly_cost_current']:,.2f} -> ${rec['est_monthly_cost_recommended']:,.2f}/mo"
+        print(f"{name}\n  {rec['current_model']} -> {rec['recommended_model']}   {cost}\n  {rec['rationale']}")
+    print(f"{len(results)} recommendations")
+
+
 def main() -> None:
     commands = {"init": db.init_schema, "reset": db.reset_data, "tables": tables, "estate": estate, "collect": collect,
-                "classify": classify_estate, "crawl": crawl, "show": show, "observe": observe}
+                "classify": classify_estate, "crawl": crawl, "show": show, "observe": observe,
+                "recommend": recommend}
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     parser.add_argument("cmd", choices=commands)
     commands[parser.parse_args().cmd]()
