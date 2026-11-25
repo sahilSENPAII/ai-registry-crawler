@@ -17,7 +17,7 @@ def estate():
 
 
 def risk_input(**overrides):
-    record = {"is_agent": False, "tools": [], "human_oversight": "none", "data_classification": "internal",
+    record = {"category": "genai_application", "is_agent": False, "tools": [], "human_oversight": "none", "data_classification": "internal",
               "decisions_about_people": False, "customer_facing": False, "provider": "anthropic/bedrock",
               "environment": "prod", "log_group": None}
     return record | overrides
@@ -42,8 +42,19 @@ def test_autonomous_agent_with_side_effects_and_pii_is_high():
 
 def test_genai_with_internal_data_is_low():
     score, level, factors = assess_risk(risk_input())
-    assert (score, level) == (3, "low")
-    assert factors == ["no human oversight", "runs in prod"]
+    assert (score, level) == (1, "low")
+    assert factors == ["runs in prod"]
+
+
+@pytest.mark.parametrize("overrides", [
+    {"is_agent": True, "category": "ai_agent"},
+    {"tools": [{"name": "send_email", "side_effect": True}]},
+    {"decisions_about_people": True},
+    {"category": "ai_workflow"},
+])
+def test_missing_oversight_counts_when_it_can_act_or_decide(overrides):
+    assert "no human oversight" in assess_risk(risk_input(**overrides))[2]
+    assert "no human oversight" not in assess_risk(risk_input(**overrides, human_oversight="approval_gate"))[2]
 
 
 def test_decisions_about_people(estate):

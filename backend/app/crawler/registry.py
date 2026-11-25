@@ -78,10 +78,12 @@ def decisions_about_people(resource: Resource, classification: Classification) -
 
 def assess_risk(record: dict) -> tuple[int, str, list[str]]:
     side_effects = [t["name"] for t in record["tools"] if t["side_effect"]]
+    can_act_or_decide = (record["is_agent"] or side_effects or record["decisions_about_people"]
+                         or record["category"] == "ai_workflow")
     rules = [
         (record["is_agent"], 2, "agent"),
         (side_effects, 2, f"side-effect tools: {', '.join(side_effects)}"),
-        (record["human_oversight"] == "none", 2, "no human oversight"),
+        (can_act_or_decide and record["human_oversight"] == "none", 2, "no human oversight"),
         (record["data_classification"] == "pii", 2, "processes pii"),
         (record["data_classification"] == "confidential", 1, "processes confidential data"),
         (record["decisions_about_people"], 2, "makes decisions about people"),

@@ -35,7 +35,7 @@ missing `data-classification` or `customer-facing` is NULL.
 |---|---|
 | Agent | 2 |
 | Side-effect tools (name starts with issue, send, create, update, delete, submit, export, write, refund, pay, approve) | 2 |
-| No human oversight | 2 |
+| No human oversight, only when it can act or decide (agent, side-effect tools, decisions about people, or AI workflow) | 2 |
 | Data classification `pii` / `confidential` | 2 / 1 |
 | Makes decisions about people | 2 |
 | Customer-facing | 1 |
