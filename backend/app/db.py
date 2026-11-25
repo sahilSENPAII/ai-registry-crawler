@@ -9,6 +9,8 @@ from app.config import config
 
 log = logging.getLogger(__name__)
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+# child tables first; also the order the CLI prints them in
+TABLES = ["model_recommendations", "agent_anomalies", "agent_traces", "ai_registry", "discovery_runs"]
 
 
 def connect() -> psycopg.Connection:
@@ -17,16 +19,13 @@ def connect() -> psycopg.Connection:
 
 
 def init_schema() -> None:
-    sql = SCHEMA_PATH.read_text()
-    if not sql.strip():
-        log.info("schema.sql is empty, skipping")
-        return
     with connect() as conn:
-        conn.execute(sql)
+        conn.execute(SCHEMA_PATH.read_text())
 
 
 def reset_data() -> None:
-    pass  # stub: filled in once tables exist
+    with connect() as conn:
+        conn.execute(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE")
 
 
 def wait_for_db(retries: int = 10, delay: float = 2) -> bool:
