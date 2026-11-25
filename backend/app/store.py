@@ -127,3 +127,131 @@ def list_registry(conn):
 
 def get_run(conn, run_id):
     return conn.execute("SELECT * FROM discovery_runs WHERE id = %s", (run_id,)).fetchone()
+
+
+# --- dashboard API reads ---
+
+INTERNAL = "coalesce((attributes->>'internal')::boolean, false)"
+SEVERITY_ORDER = "array_position(ARRAY['critical','high','medium','low'], severity)"
+
+
+def ping(conn):
+    conn.execute("SELECT 1")
+
+
+def registry_count(conn) -> int:
+    return conn.execute("SELECT count(*) AS n FROM ai_registry").fetchone()["n"]
+
+
+def list_runs(conn, limit=20):
+    return conn.execute("SELECT * FROM discovery_runs ORDER BY id DESC LIMIT %s", (limit,)).fetchall()
+
+
+def summary(conn):
+    def counts(query):
+        return {r["key"]: r["n"] for r in conn.execute(query).fetchall()}
+
+    active = "FROM ai_registry WHERE status = 'active'"
+    totals = conn.execute(f"SELECT count(*) AS systems, count(*) FILTER (WHERE is_agent) AS agents, "
+                          f"count(*) FILTER (WHERE monitored) AS monitored {active}").fetchone()
+    cost = conn.execute(
+        """SELECT coalesce(sum(m.est_monthly_cost_current), 0) AS current,
+                  coalesce(sum(m.est_monthly_cost_recommended), 0) AS recommended
+           FROM model_recommendations m JOIN ai_registry r ON r.id = m.registry_id WHERE r.status = 'active'"""
+    ).fetchone()
+    return {
+        **totals,
+        "by_category": counts(f"SELECT category AS key, count(*) AS n {active} GROUP BY category"),
+        "by_risk_level": counts(f"SELECT risk_level AS key, count(*) AS n {active} GROUP BY risk_level"),
+        "findings_by_severity": counts("SELECT severity AS key, count(*) AS n FROM agent_anomalies GROUP BY severity"),
+        "monthly_cost": cost,
+        "last_run": conn.execute("SELECT * FROM discovery_runs ORDER BY id DESC LIMIT 1").fetchone(),
+    }
+
+
+def list_systems(conn, category=None, risk_level=None, status=None, include_retired=False):
+    return conn.execute(
+        """SELECT id, name, service, region, category, is_agent, risk_level, risk_score, autonomy_level,
+                  human_oversight, owner, environment, data_classification, monitored, status, last_seen_at
+           FROM ai_registry
+           WHERE (%(category)s::text IS NULL OR category = %(category)s)
+             AND (%(risk_level)s::text IS NULL OR risk_level = %(risk_level)s)
+             AND (%(status)s::text IS NULL OR status = %(status)s)
+             AND (%(status)s::text IS NOT NULL OR %(include_retired)s OR status = 'active')
+           ORDER BY risk_score DESC, name""",
+        {"category": category, "risk_level": risk_level, "status": status, "include_retired": include_retired},
+    ).fetchall()
+
+
+def get_system(conn, registry_id):
+    system = conn.execute("SELECT * FROM ai_registry WHERE id = %s", (registry_id,)).fetchone()
+    if system is None:
+        return None
+    return {
+        **system,
+        "recommendation": conn.execute("SELECT * FROM model_recommendations WHERE registry_id = %s",
+                                       (registry_id,)).fetchone(),
+        "findings": conn.execute(f"SELECT * FROM agent_anomalies WHERE registry_id = %s ORDER BY {SEVERITY_ORDER}, id",
+                                 (registry_id,)).fetchall(),
+        "run_stats": conn.execute(
+            """SELECT count(DISTINCT trace_id) AS runs, count(*) AS spans,
+                      coalesce(sum(input_tokens), 0) + coalesce(sum(output_tokens), 0) AS tokens,
+                      coalesce(sum(cost_usd), 0) AS cost_usd,
+                      count(DISTINCT trace_id) FILTER (WHERE status = 'error') AS error_runs,
+                      max(started_at) AS last_seen
+               FROM agent_traces WHERE registry_id = %s""", (registry_id,)).fetchone(),
+    }
+
+
+def list_agents(conn, include_internal=False):
+    return conn.execute(
+        f"""SELECT t.agent_name AS name, max(t.registry_id) AS registry_id, max(t.registry_id) IS NOT NULL AS registered,
+                   bool_or({INTERNAL}) AS internal, count(DISTINCT t.trace_id) AS runs, count(*) AS spans,
+                   coalesce(sum(t.input_tokens), 0) + coalesce(sum(t.output_tokens), 0) AS tokens,
+                   coalesce(sum(t.cost_usd), 0) AS cost_usd,
+                   count(DISTINCT t.trace_id) FILTER (WHERE t.status = 'error') AS error_runs,
+                   (SELECT count(*) FROM agent_anomalies a WHERE a.agent_name = t.agent_name) AS findings,
+                   max(t.started_at) AS last_seen
+            FROM agent_traces t
+            GROUP BY t.agent_name
+            HAVING %s OR NOT bool_or({INTERNAL})
+            ORDER BY registered, name""",
+        (include_internal,),
+    ).fetchall()
+
+
+def agent_runs(conn, agent_name, limit=100):
+    return conn.execute(
+        """SELECT trace_id, min(started_at) AS started_at, max(ended_at) AS ended_at,
+                  (extract(epoch FROM max(ended_at) - min(started_at)) * 1000)::int AS duration_ms, count(*) AS spans,
+                  coalesce(sum(input_tokens), 0) + coalesce(sum(output_tokens), 0) AS tokens,
+                  coalesce(sum(cost_usd), 0) AS cost_usd,
+                  CASE WHEN bool_or(status = 'error') THEN 'error' ELSE 'ok' END AS status
+           FROM agent_traces WHERE agent_name = %s
+           GROUP BY trace_id ORDER BY started_at DESC LIMIT %s""",
+        (agent_name, limit),
+    ).fetchall()
+
+
+def trace_spans(conn, trace_id):
+    return conn.execute("SELECT * FROM agent_traces WHERE trace_id = %s ORDER BY started_at, parent_span_id NULLS FIRST, id",
+                        (trace_id,)).fetchall()
+
+
+def list_findings(conn, severity=None, agent=None):
+    return conn.execute(
+        f"""SELECT * FROM agent_anomalies
+            WHERE (%(severity)s::text IS NULL OR severity = %(severity)s)
+              AND (%(agent)s::text IS NULL OR agent_name = %(agent)s)
+            ORDER BY {SEVERITY_ORDER}, agent_name, id""",
+        {"severity": severity, "agent": agent},
+    ).fetchall()
+
+
+def list_recommendations(conn, include_retired=False):
+    return conn.execute(
+        """SELECT r.name, r.category, r.risk_level, m.* FROM model_recommendations m
+           JOIN ai_registry r ON r.id = m.registry_id
+           WHERE %s OR r.status = 'active' ORDER BY r.name""",
+        (include_retired,),
+    ).fetchall()

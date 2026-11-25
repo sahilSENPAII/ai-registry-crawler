@@ -1,13 +1,13 @@
 import argparse
+from collections import Counter
 
 from psycopg import sql
 
 from app import aws, db, store
-from app.crawler.agent import CrawlerAgent
-from app.observability.agent import ObservabilityAgent
-from app.recommend.engine import recommend_all
+from app.config import config
 from app.crawler.classifier import classify
 from app.crawler.collectors import collect_all
+from app.pipeline import run_discovery
 
 KEY_TAGS = ["owner", "team", "environment", "data-classification", "customer-facing"]
 
@@ -66,13 +66,20 @@ def classify_estate() -> None:
         print(f"collector error: {error}")
 
 
-def crawl() -> None:
-    with aws.simulated_aws(), db.connect() as conn:
-        summary = CrawlerAgent(aws.session(), aws.lambda_code_fetcher("mock"), conn).run()
+def _discover(until):
+    with db.connect() as conn:
+        return run_discovery(conn, config.discovery_mode, until)
+
+
+def _print_crawl(summary):
     print(f"run {summary['run_id']}: {summary['resources_scanned']} resources scanned, "
           f"{summary['ai_systems_found']} AI systems, {summary['agents_found']} agents, {summary['retired']} retired")
     for error in summary["errors"]:
         print(f"collector error: {error}")
+
+
+def crawl() -> None:
+    _print_crawl(_discover("crawl")["crawl"])
 
 
 def show() -> None:
@@ -86,10 +93,9 @@ def show() -> None:
 
 
 def observe() -> None:
-    with aws.simulated_aws(), db.connect() as conn:
-        crawl_summary = CrawlerAgent(aws.session(), aws.lambda_code_fetcher("mock"), conn).run()
-        summary = ObservabilityAgent(aws.session(), conn, crawl_summary["run_id"]).run()
-    print(f"run {crawl_summary['run_id']}: {summary['spans']} spans")
+    result = _discover("observe")
+    summary = result["observe"]
+    print(f"run {result['run_id']}: {summary['spans']} spans")
     for agent, n in summary["spans_per_agent"].items():
         print(f"  {agent:<28}{n}")
     print(f"\n{'SEVERITY':<10}{'AGENT':<24}{'RULE':<30}DESCRIPTION")
@@ -99,10 +105,7 @@ def observe() -> None:
 
 
 def recommend() -> None:
-    with aws.simulated_aws(), db.connect() as conn:
-        run_id = CrawlerAgent(aws.session(), aws.lambda_code_fetcher("mock"), conn).run()["run_id"]
-        ObservabilityAgent(aws.session(), conn, run_id).run()
-        results = recommend_all(conn, run_id)
+    results = _discover("recommend")["recommendations"]
     for name, rec in results:
         cost = "-" if rec["est_monthly_cost_current"] is None else \
             f"${rec['est_monthly_cost_current']:,.2f} -> ${rec['est_monthly_cost_recommended']:,.2f}/mo"
@@ -110,10 +113,22 @@ def recommend() -> None:
     print(f"{len(results)} recommendations")
 
 
+def discover() -> None:
+    result = _discover("recommend")
+    _print_crawl(result["crawl"])
+    findings = Counter(f["severity"] for f in result["observe"]["findings"])
+    print(f"{result['observe']['spans']} spans observed, {sum(findings.values())} findings "
+          f"({', '.join(f'{n} {sev}' for sev, n in sorted(findings.items()))})")
+    recs = [rec for _, rec in result["recommendations"]]
+    current = sum(r["est_monthly_cost_current"] or 0 for r in recs)
+    recommended = sum(r["est_monthly_cost_recommended"] or 0 for r in recs)
+    print(f"{len(recs)} recommendations: ${current:,.2f}/mo now, ${recommended:,.2f}/mo recommended")
+
+
 def main() -> None:
     commands = {"init": db.init_schema, "reset": db.reset_data, "tables": tables, "estate": estate, "collect": collect,
                 "classify": classify_estate, "crawl": crawl, "show": show, "observe": observe,
-                "recommend": recommend}
+                "recommend": recommend, "discover": discover}
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     parser.add_argument("cmd", choices=commands)
     commands[parser.parse_args().cmd]()

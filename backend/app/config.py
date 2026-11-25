@@ -14,6 +14,7 @@ class Config:
     agent_log_prefix: str = field(default_factory=lambda: _env("AGENT_LOG_PREFIX", "/ai/agents/"))
     log_lookback_hours: int = field(default_factory=lambda: int(_env("LOG_LOOKBACK_HOURS", "720")))
     default_monthly_requests: int = field(default_factory=lambda: int(_env("DEFAULT_MONTHLY_REQUESTS", "10000")))
+    auto_discover: bool = field(default_factory=lambda: _env("AUTO_DISCOVER", "true").lower() in ("1", "true", "yes"))
     cors_origins: list[str] = field(default_factory=lambda: [o.strip() for o in _env("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()])
 
 
