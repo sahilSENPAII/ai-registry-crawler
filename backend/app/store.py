@@ -72,7 +72,7 @@ def insert_spans(conn, spans, run_id, registry_id=None):
 
 def active_registry(conn):
     return conn.execute("SELECT id, name, service, resource_arn, log_group, tools, category, task_type, models, "
-                        "data_classification FROM ai_registry WHERE status = 'active' ORDER BY name").fetchall()
+                        "data_classification, risk_level FROM ai_registry WHERE status = 'active' ORDER BY name").fetchall()
 
 
 def mark_monitored(conn, registry_ids):
@@ -93,11 +93,14 @@ def replace_anomalies(conn, run_id, findings):
     conn.execute("UPDATE discovery_runs SET findings_count = %s WHERE id = %s", (len(findings), run_id))
 
 
-def observed_requests(conn, since) -> dict:
-    """registry_id -> number of traced runs since `since`."""
-    rows = conn.execute("SELECT registry_id, count(DISTINCT trace_id) AS n FROM agent_traces "
-                        "WHERE registry_id IS NOT NULL AND started_at >= %s GROUP BY registry_id", (since,)).fetchall()
-    return {r["registry_id"]: r["n"] for r in rows}
+def observed_usage(conn, since) -> dict:
+    """registry_id -> {"runs", "input_tokens", "output_tokens"} totals for traces since `since`."""
+    rows = conn.execute(
+        """SELECT registry_id, count(DISTINCT trace_id) AS runs, coalesce(sum(input_tokens), 0) AS input_tokens,
+                  coalesce(sum(output_tokens), 0) AS output_tokens
+           FROM agent_traces WHERE registry_id IS NOT NULL AND started_at >= %s GROUP BY registry_id""",
+        (since,)).fetchall()
+    return {r.pop("registry_id"): r for r in rows}
 
 
 def upsert_recommendation(conn, run_id, rec):

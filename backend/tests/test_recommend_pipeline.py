@@ -40,6 +40,10 @@ def test_every_ai_system_gets_one_recommendation(conn):
                            "WHERE m.registry_id IS NULL").fetchall()
     assert missing == []
 
+    hr = conn.execute("SELECT m.rationale FROM model_recommendations m JOIN ai_registry r ON r.id = m.registry_id "
+                      "WHERE r.name = 'hr-policy-assistant'").fetchone()
+    assert hr["rationale"].startswith("Upgrade")
+
     run_id = pipeline(conn)
     assert conn.execute(count).fetchone()["n"] == 11
     assert {r["run_id"] for r in conn.execute("SELECT run_id FROM model_recommendations").fetchall()} == {run_id}

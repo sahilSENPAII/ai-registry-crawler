@@ -43,7 +43,7 @@ TASK_PROFILES = {
     "summarization": {"min_capability": 65, "input_tokens": 4000, "output_tokens": 400, "needs_tools": False},
     "classification": {"min_capability": 50, "input_tokens": 500, "output_tokens": 10, "needs_tools": False},
     "rag": {"min_capability": 70, "input_tokens": 3000, "output_tokens": 500, "needs_tools": False},
-    "agentic_tool_use": {"min_capability": 75, "input_tokens": 6000, "output_tokens": 1200, "needs_tools": True},
+    "agentic_tool_use": {"min_capability": 85, "input_tokens": 6000, "output_tokens": 1200, "needs_tools": True},
     "decision_support": {"min_capability": 80, "input_tokens": 2500, "output_tokens": 800, "needs_tools": False},
     "content_generation": {"min_capability": 65, "input_tokens": 1000, "output_tokens": 800, "needs_tools": False},
 }

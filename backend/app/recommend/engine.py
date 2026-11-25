@@ -6,8 +6,14 @@ from app.config import config
 from app.pricing import cost_usd
 from app.recommend.catalog import MODELS, TASK_PROFILES
 
-WEIGHTS = {"capability": 40, "cost": 40, "residency": 15, "speed": 5}
+# high-risk systems weigh capability over cost; residency is the in-AWS score, external APIs get EXTERNAL_RESIDENCY
+WEIGHTS = {
+    "high": {"capability": 55, "cost": 25, "residency": 15, "speed": 5},
+    "standard": {"capability": 40, "cost": 40, "residency": 15, "speed": 5},
+}
+EXTERNAL_RESIDENCY = 5
 KEEP_MARGIN = 3
+MIN_OBSERVED_MONTHLY = 1_000
 SENSITIVE = {"pii", "confidential"}
 
 
@@ -15,12 +21,12 @@ def _monthly_cost(model, profile, requests):
     return round(cost_usd(model, profile["input_tokens"], profile["output_tokens"]) * requests, 2)
 
 
-def _score(model, profile, cheapest_cost):
+def _score(model, profile, cheapest_cost, weights):
     m, bar = MODELS[model], profile["min_capability"]
-    capability = max(0.0, (m["capability"] - bar) / (100 - bar)) * WEIGHTS["capability"]
-    cost = WEIGHTS["cost"] * min(1.0, cheapest_cost / cost_usd(model, profile["input_tokens"], profile["output_tokens"]))
-    residency = WEIGHTS["residency"] if m["hosting"] == "bedrock" else WEIGHTS["residency"] / 3
-    speed = WEIGHTS["speed"] * m["speed"] / 3
+    capability = max(0.0, (m["capability"] - bar) / (100 - bar)) * weights["capability"]
+    cost = weights["cost"] * min(1.0, cheapest_cost / cost_usd(model, profile["input_tokens"], profile["output_tokens"]))
+    residency = weights["residency"] if m["hosting"] == "bedrock" else EXTERNAL_RESIDENCY
+    speed = weights["speed"] * m["speed"] / 3
     return round(capability + cost + residency + speed, 1)
 
 
@@ -34,7 +40,8 @@ def _money(amount):
 
 
 def recommend(record: dict, observed: dict | None) -> dict:
-    """record: an ai_registry row. observed: {"requests": n, "window_days": d} from traces, or None."""
+    """record: an ai_registry row. observed: {"runs", "input_tokens", "output_tokens", "window_days"} totals
+    from traces, or None."""
     current = next(iter(record.get("models") or []), None)
     base = {"registry_id": record["id"], "task_type": record["task_type"], "current_model": current}
     if record["category"] == "predictive_ml":
@@ -47,21 +54,31 @@ def recommend(record: dict, observed: dict | None) -> dict:
 
     task = record["task_type"]
     profile = TASK_PROFILES[task]
-    if observed and observed["requests"]:
-        requests = round(observed["requests"] * 30 / observed["window_days"])
-        volume = f"{requests:,} requests/month observed in traces"
+    weights = WEIGHTS["high" if record.get("risk_level") == "high" else "standard"]
+    runs = observed["runs"] if observed else 0
+    if runs and observed["input_tokens"] + observed["output_tokens"] > 0:
+        profile = {**profile, "input_tokens": round(observed["input_tokens"] / runs),
+                   "output_tokens": round(observed["output_tokens"] / runs)}
+        tokens = f"token profile from {runs} observed runs"
+    else:
+        tokens = "typical token profile for the task"
+    observed_monthly = round(runs * 30 / observed["window_days"]) if runs else 0
+    if observed_monthly >= MIN_OBSERVED_MONTHLY:
+        requests = observed_monthly
+        volume = f"volume {requests:,}/mo observed"
     else:
         requests = config.default_monthly_requests
-        volume = f"the default {requests:,} requests/month (no traces)"
+        why = "too little traffic observed" if runs else "no traces"
+        volume = f"volume assumed {requests:,}/mo ({why})"
 
     sensitive = record.get("data_classification") in SENSITIVE
     eligible = [m for m in MODELS if _meets_task(m, profile) and (MODELS[m]["hosting"] == "bedrock" or not sensitive)]
     cheapest = min(cost_usd(m, profile["input_tokens"], profile["output_tokens"]) for m in eligible)
-    scores = sorted(((_score(m, profile, cheapest), m) for m in eligible), reverse=True)
+    scores = sorted(((_score(m, profile, cheapest, weights), m) for m in eligible), reverse=True)
     best_score, best = scores[0]
 
     known = current in MODELS
-    current_score = _score(current, profile, cheapest) if known else None
+    current_score = _score(current, profile, cheapest, weights) if known else None
     current_cost = _monthly_cost(current, profile, requests) if known else None
     best_cost = _monthly_cost(best, profile, requests)
 
@@ -97,17 +114,17 @@ def recommend(record: dict, observed: dict | None) -> dict:
     return base | {
         "recommended_model": recommended, "current_score": current_score, "recommended_score": recommended_score,
         "est_monthly_cost_current": current_cost, "est_monthly_cost_recommended": _monthly_cost(recommended, profile, requests),
-        "rationale": f"{rationale}. Volume: {volume}.", "alternatives": alternatives,
+        "rationale": f"{rationale}. Based on {tokens}; {volume}.", "alternatives": alternatives,
     }
 
 
 def recommend_all(conn, run_id) -> list[tuple[str, dict]]:
     window_days = config.log_lookback_hours / 24
     since = datetime.now(timezone.utc) - timedelta(hours=config.log_lookback_hours)
-    requests = store.observed_requests(conn, since)
+    usage = store.observed_usage(conn, since)
     results = []
     for record in store.active_registry(conn):
-        observed = {"requests": requests[record["id"]], "window_days": window_days} if record["id"] in requests else None
+        observed = {**usage[record["id"]], "window_days": window_days} if record["id"] in usage else None
         rec = recommend(record, observed)
         store.upsert_recommendation(conn, run_id, rec)
         results.append((record["name"], rec))
