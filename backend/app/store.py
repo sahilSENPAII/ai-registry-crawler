@@ -55,19 +55,42 @@ def insert_spans(conn, spans, run_id, registry_id=None):
         rows.append((
             run_id, registry_id, a["gen_ai.agent.name"], s["trace_id"], s["span_id"], s.get("parent_span_id"),
             a.get("gen_ai.operation.name"), s.get("name"), a.get("gen_ai.request.model"), a.get("gen_ai.tool.name"),
-            start, end, int((end - start).total_seconds() * 1000) if end else None,
+            start, end, s.get("duration_ms", int((end - start).total_seconds() * 1000) if end else None),
             a.get("gen_ai.usage.input_tokens"), a.get("gen_ai.usage.output_tokens"),
-            s.get("status"), a.get("error.type"), Jsonb(a),
+            s.get("cost_usd"), s.get("status"), a.get("error.type"), Jsonb(a),
         ))
     with conn.cursor() as cur:
         cur.executemany(
             """INSERT INTO agent_traces (run_id, registry_id, agent_name, trace_id, span_id, parent_span_id, operation,
                    span_name, model, tool_name, started_at, ended_at, duration_ms, input_tokens, output_tokens,
-                   status, error_type, attributes)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   cost_usd, status, error_type, attributes)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (trace_id, span_id) DO NOTHING""",
             rows,
         )
+
+
+def active_registry(conn):
+    return conn.execute("SELECT id, name, service, resource_arn, log_group, tools FROM ai_registry "
+                        "WHERE status = 'active'").fetchall()
+
+
+def mark_monitored(conn, registry_ids):
+    conn.execute("UPDATE ai_registry SET monitored = true WHERE id = ANY(%s)", (list(registry_ids),))
+
+
+def replace_anomalies(conn, run_id, findings):
+    """Findings are recomputed over the whole lookback window each run, so the table holds only the latest set."""
+    conn.execute("DELETE FROM agent_anomalies")
+    with conn.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO agent_anomalies (run_id, registry_id, agent_name, rule, severity, trace_id, span_id,
+                   description, details)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            [(run_id, f["registry_id"], f["agent_name"], f["rule"], f["severity"], f["trace_id"], f["span_id"],
+              f["description"], Jsonb(f["details"])) for f in findings],
+        )
+    conn.execute("UPDATE discovery_runs SET findings_count = %s WHERE id = %s", (len(findings), run_id))
 
 
 def list_registry(conn):

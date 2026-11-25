@@ -8,6 +8,7 @@
         "lambda:ListFunctions",
         "lambda:ListTags",
         "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
         "bedrock:ListAgents",
         "bedrock:GetAgent",
         "bedrock:ListTagsForResource",
@@ -27,7 +28,8 @@
         "iam:ListAttachedRolePolicies",
         "iam:GetPolicy",
         "iam:GetPolicyVersion",
-        "logs:DescribeLogGroups"
+        "logs:DescribeLogGroups",
+        "logs:FilterLogEvents"
       ],
       "Resource": "*"
     }

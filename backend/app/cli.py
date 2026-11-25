@@ -4,6 +4,7 @@ from psycopg import sql
 
 from app import aws, db, store
 from app.crawler.agent import CrawlerAgent
+from app.observability.agent import ObservabilityAgent
 from app.crawler.classifier import classify
 from app.crawler.collectors import collect_all
 
@@ -83,9 +84,22 @@ def show() -> None:
     print(f"{len(rows)} AI systems")
 
 
+def observe() -> None:
+    with aws.simulated_aws(), db.connect() as conn:
+        crawl_summary = CrawlerAgent(aws.session(), aws.lambda_code_fetcher("mock"), conn).run()
+        summary = ObservabilityAgent(aws.session(), conn, crawl_summary["run_id"]).run()
+    print(f"run {crawl_summary['run_id']}: {summary['spans']} spans")
+    for agent, n in summary["spans_per_agent"].items():
+        print(f"  {agent:<28}{n}")
+    print(f"\n{'SEVERITY':<10}{'AGENT':<24}{'RULE':<30}DESCRIPTION")
+    for f in summary["findings"]:
+        print(f"{f['severity']:<10}{f['agent_name']:<24}{f['rule']:<30}{f['description']}")
+    print(f"{len(summary['findings'])} findings")
+
+
 def main() -> None:
     commands = {"init": db.init_schema, "reset": db.reset_data, "tables": tables, "estate": estate, "collect": collect,
-                "classify": classify_estate, "crawl": crawl, "show": show}
+                "classify": classify_estate, "crawl": crawl, "show": show, "observe": observe}
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     parser.add_argument("cmd", choices=commands)
     commands[parser.parse_args().cmd]()
