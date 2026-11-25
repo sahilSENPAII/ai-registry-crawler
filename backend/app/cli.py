@@ -2,7 +2,8 @@ import argparse
 
 from psycopg import sql
 
-from app import aws, db
+from app import aws, db, store
+from app.crawler.agent import CrawlerAgent
 from app.crawler.classifier import classify
 from app.crawler.collectors import collect_all
 
@@ -63,9 +64,28 @@ def classify_estate() -> None:
         print(f"collector error: {error}")
 
 
+def crawl() -> None:
+    with aws.simulated_aws(), db.connect() as conn:
+        summary = CrawlerAgent(aws.session(), aws.lambda_code_fetcher("mock"), conn).run()
+    print(f"run {summary['run_id']}: {summary['resources_scanned']} resources scanned, "
+          f"{summary['ai_systems_found']} AI systems, {summary['agents_found']} agents, {summary['retired']} retired")
+    for error in summary["errors"]:
+        print(f"collector error: {error}")
+
+
+def show() -> None:
+    with db.connect() as conn:
+        rows = store.list_registry(conn)
+    print(f"{'NAME':<28}{'CATEGORY':<19}{'RISK':<10}{'AUTONOMY':<19}{'OVERSIGHT':<15}{'OWNER':<14}STATUS")
+    for r in rows:
+        print(f"{r['name']:<28}{r['category']:<19}{r['risk_level'] + ' ' + str(r['risk_score']):<10}"
+              f"{r['autonomy_level']:<19}{r['human_oversight']:<15}{r['owner'] or '-':<14}{r['status']}")
+    print(f"{len(rows)} AI systems")
+
+
 def main() -> None:
     commands = {"init": db.init_schema, "reset": db.reset_data, "tables": tables, "estate": estate, "collect": collect,
-                "classify": classify_estate}
+                "classify": classify_estate, "crawl": crawl, "show": show}
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     parser.add_argument("cmd", choices=commands)
     commands[parser.parse_args().cmd]()
