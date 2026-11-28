@@ -5,7 +5,7 @@ import pytest
 from app import aws
 from app.crawler.classifier import classify
 from app.crawler.collectors import Resource, collect_all
-from app.crawler.registry import assess_risk, build_record, decisions_about_people, registry_id
+from app.crawler.registry import CONTROLS, assess_risk, build_record, decisions_about_people, registry_id
 
 
 @pytest.fixture(scope="module")
@@ -70,6 +70,38 @@ def test_high_risk_records_need_impact_assessment(estate):
     for rec in high:
         assert rec["impact_assessment_status"] == "required"
         assert "A.5.2" in {c["ref"] for c in rec["controls"]}
+
+
+TITLES = {
+    "A.3.2": "AI roles and responsibilities",
+    "A.4.2": "Resource documentation",
+    "A.4.3": "Data resources",
+    "A.4.4": "Tooling resources",
+    "A.5.2": "AI system impact assessment process",
+    "A.5.3": "Documentation of AI system impact assessments",
+    "A.5.4": "Assessing AI system impact on individuals or groups of individuals",
+    "A.6.2.6": "AI system operation and monitoring",
+    "A.6.2.7": "AI system technical documentation",
+    "A.6.2.8": "AI system recording of event logs",
+    "A.7.5": "Data provenance",
+    "A.8.4": "Communication of incidents",
+    "A.9.2": "Processes for responsible use of AI systems",
+    "A.9.4": "Intended use of the AI system",
+    "A.10.2": "Allocating responsibilities",
+    "A.10.3": "Suppliers",
+}
+
+
+def test_control_titles_are_the_standards_short_titles():
+    assert {ref: title for ref, (title, _, _) in CONTROLS.items()} == TITLES
+
+
+def test_controls_that_go_together(estate):
+    refs = [{c["ref"] for c in build_record(r, c, run_id=1)["controls"]} for r, c in estate.values() if c.is_ai]
+    assert all("A.4.2" in r for r in refs)
+    assert any("A.5.2" in r for r in refs) and all("A.5.3" in r for r in refs if "A.5.2" in r)
+    assert any("A.10.3" in r for r in refs) and all(("A.10.2" in r) == ("A.10.3" in r) for r in refs)
+    assert not any("A.8.4" in r for r in refs)  # added after observe, from the findings
 
 
 def test_tags_are_not_guessed():

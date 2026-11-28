@@ -21,14 +21,18 @@ PURPOSES = {
     "content_generation": "Generates content",
 }
 
-# ref -> (title, applies(record), why)
+# ref -> (ISO/IEC 42001:2023 Annex A short title, applies(record), why)
 CONTROLS = {
     "A.3.2": ("AI roles and responsibilities", lambda r: True,
               "every AI system needs an accountable owner"),
+    "A.4.2": ("Resource documentation", lambda r: True,
+              "this registry record documents the system's resources"),
     "A.6.2.7": ("AI system technical documentation", lambda r: True,
                 "every AI system needs up-to-date technical documentation"),
     "A.5.2": ("AI system impact assessment process", lambda r: _needs_impact(r),
               "impact assessment is required or recommended, or it decides about people"),
+    "A.5.3": ("Documentation of AI system impact assessments", lambda r: _needs_impact(r),
+              "its impact assessment must be documented and kept"),
     "A.5.4": ("Assessing AI system impact on individuals or groups of individuals", lambda r: _needs_impact(r),
               "impact assessment is required or recommended, or it decides about people"),
     "A.6.2.6": ("AI system operation and monitoring", lambda r: r["is_agent"],
@@ -41,12 +45,17 @@ CONTROLS = {
               "it reads or writes data sources"),
     "A.4.4": ("Tooling resources", lambda r: bool(r["tools"]),
               "it calls tools"),
+    "A.10.2": ("Allocating responsibilities", lambda r: _external(r),
+               "responsibilities must be split between the company and its model provider"),
     "A.10.3": ("Suppliers", lambda r: _external(r),
                "it sends data to a model provider outside AWS"),
     "A.9.2": ("Processes for responsible use of AI systems", lambda r: r["customer_facing"] is True,
               "customers interact with it directly"),
     "A.9.4": ("Intended use of the AI system", lambda r: r["customer_facing"] is True,
               "customers interact with it directly"),
+    # needs the observability findings, so the pipeline adds it after observe
+    "A.8.4": ("Communication of incidents", None,
+              "it had a critical or high finding that must be reported as an incident"),
 }
 
 
@@ -109,8 +118,13 @@ def autonomy_level(record: dict) -> str:
     return "assistive"
 
 
+def control(ref) -> dict:
+    title, _, why = CONTROLS[ref]
+    return {"ref": ref, "title": title, "why": why}
+
+
 def controls_for(record: dict) -> list[dict]:
-    return [{"ref": ref, "title": title, "why": why} for ref, (title, applies, why) in CONTROLS.items() if applies(record)]
+    return [control(ref) for ref, (_, applies, _) in CONTROLS.items() if applies and applies(record)]
 
 
 def build_record(resource: Resource, classification: Classification, run_id: int, decided_by: str = "rules",

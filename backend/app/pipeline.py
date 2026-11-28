@@ -1,9 +1,10 @@
 """crawl -> observe -> recommend in one process, so moto's in-memory estate (mock mode) is shared by every step."""
 from contextlib import contextmanager
 
-from app import aws
+from app import aws, store
 from app.config import config
 from app.crawler.agent import CrawlerAgent
+from app.crawler.registry import control
 from app.llm import make_llm
 from app.observability.agent import ObservabilityAgent
 from app.recommend.engine import recommend_all
@@ -38,6 +39,11 @@ def run_discovery(conn, mode, until="recommend", llm=None) -> dict:
         with _aws_session(mode) as session:
             crawl = CrawlerAgent(session, aws.lambda_code_fetcher(mode), conn, llm).run()
             observe = ObservabilityAgent(session, conn, crawl["run_id"]).run() if "observe" in steps else None
+            if observe:
+                incidents = {f["registry_id"] for f in observe["findings"]
+                             if f["registry_id"] and f["severity"] in ("critical", "high")}
+                store.add_control(conn, incidents, control("A.8.4"))
+                conn.commit()
             recommendations = recommend_all(conn, crawl["run_id"]) if "recommend" in steps else None
         return {"run_id": crawl["run_id"], "mode": mode, "crawl": crawl, "observe": observe,
                 "recommendations": recommendations}

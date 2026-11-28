@@ -348,7 +348,7 @@ cd backend
 TEST_DATABASE_URL=postgresql://registry:registry@localhost:5433/registry_test pytest -q
 ```
 
-228 tests. Tests set fake AWS credentials, so one that forgets the mock fails instead of reaching a real account. Without `TEST_DATABASE_URL` the database tests are skipped with a clear message;
+231 tests. Tests set fake AWS credentials, so one that forgets the mock fails instead of reaching a real account. Without `TEST_DATABASE_URL` the database tests are skipped with a clear message;
 they truncate every table, so never point them at the main database.
 
 | File | Covers |

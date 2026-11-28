@@ -16,7 +16,7 @@ OpenTelemetry GenAI semantic conventions where one exists.
 | `error.type` | OTel `error.type` | `error_type` | Which failures happen and how often |
 | `gen_ai.operation.name` | GenAI: `invoke_agent`, `chat`, `execute_tool`, plus `retrieval` and `human_approval` | `operation` | What kind of step it was |
 | `gen_ai.agent.name` | GenAI agent spans | `agent_name` | Links behaviour to a registry entry; unknown names reveal shadow agents |
-| `gen_ai.request.model` | GenAI client spans | `model` | Which model made each decision (A.10.3 suppliers) |
+| `gen_ai.request.model` | GenAI client spans | `model` | Which model made each decision (A.10.3 Suppliers) |
 | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | GenAI usage | `input_tokens`, `output_tokens`, `cost_usd` | Cost and runaway usage |
 | `gen_ai.tool.name` | GenAI `execute_tool` spans | `tool_name` | Which actions the agent took, versus what it declared (A.4.4) |
 | `gen_ai.tool.call.arguments` | GenAI tool call arguments (JSON string) | `attributes` | Amounts and targets of side effects, for approval checks |

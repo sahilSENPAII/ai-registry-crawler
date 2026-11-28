@@ -27,8 +27,9 @@ open the refund agent."
 **Say:** "It is an agent because its code declares tools, loops on the model's tool requests,
 keeps session memory and has a step limit. That adds up to 0.9 against a threshold of 0.6, and
 each line is the evidence. It scores 8 risk points: an agent that issues refunds and sends
-email, on pii, customer-facing, in prod. That brings in the impact assessment controls A.5.2
-and A.5.4, plus monitoring and event logs for agents, A.6.2.6 and A.6.2.8."
+email, on pii, customer-facing, in prod. That brings in the impact assessment controls A.5.2,
+A.5.3 and A.5.4, monitoring and event logs for agents, A.6.2.6 and A.6.2.8, and A.8.4,
+communication of incidents, because of the critical finding we'll open next."
 
 **Click:** "View run" under "Took an action without approval" in the Issues card.
 

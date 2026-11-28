@@ -42,6 +42,12 @@ def upsert_registry(conn, record):
     )
 
 
+def add_control(conn, registry_ids, control) -> int:
+    """Appends a control to these systems' controls unless they already have it."""
+    return conn.execute("UPDATE ai_registry SET controls = controls || %s WHERE id = ANY(%s) AND NOT controls @> %s",
+                        (Jsonb([control]), list(registry_ids), Jsonb([{"ref": control["ref"]}]))).rowcount
+
+
 def retire_unseen(conn, run_id) -> int:
     return conn.execute("UPDATE ai_registry SET status = 'retired' WHERE status = 'active' "
                         "AND last_run_id IS DISTINCT FROM %s", (run_id,)).rowcount
