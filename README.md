@@ -174,6 +174,7 @@ The agents' CloudWatch logs hold 10 to 20 normal runs each over 14 days, plus ei
 - **Rules, not an LLM.** Classification, risk, behaviour checks and model fit are deterministic rules, so every verdict is reproducible, auditable against its evidence and free to run.
 - **An IAM permission alone is not AI.** Permissions are recorded as unused AI permissions instead; `order-fulfilment` is the decoy that tests this.
 - **Stable registry ids and retirement.** A system's id is a hash of service, account, region and name, not its ARN, so reruns update the same row and keep `first_seen_at`. Systems not seen in a run are marked retired, not deleted.
+- **Secrets are masked at collection.** Values under names containing key, token, secret, password, passwd, credential or auth, passwords in connection strings, and values shaped like `sk-...`, `AKIA...` or long hex/base64 become `[masked]` in env vars, config, tags and code before anything is classified or stored. Names are kept.
 - **A failed collector never retires systems.** If one service fails (for example AccessDenied), the run still succeeds with the error recorded, and nothing is retired that run.
 - **Internal agents trace themselves but are not flagged.** The crawler and observability agents write their own spans marked `internal: true`, so they are visible but never reported as shadow agents.
 - **Residency is a hard rule.** pii and confidential systems are only ever recommended models hosted on Bedrock, whatever their score.
@@ -262,12 +263,13 @@ cd backend
 TEST_DATABASE_URL=postgresql://registry:registry@localhost:5433/registry_test pytest -q
 ```
 
-159 tests. Without `TEST_DATABASE_URL` the database tests are skipped with a clear message;
+182 tests. Without `TEST_DATABASE_URL` the database tests are skipped with a clear message;
 they truncate every table, so never point them at the main database.
 
 | File | Covers |
 |---|---|
 | `test_estate.py`, `test_collectors.py` | The simulated account: 15 resources, readable Lambda code, planted log cases, determinism, no giveaway tags; collector output and error handling |
+| `test_masking.py` | Each secret name and value pattern, connection strings, code literals, nested config, values that must stay untouched |
 | `test_classifier.py` | Every workload matches the ground truth; IAM-only is not AI; hand-built agent and GenAI cases |
 | `test_registry.py` | Stable ids, risk scoring, decisions about people, impact assessments and controls |
 | `test_crawler.py` | Crawls into Postgres, reruns, retirement, self-tracing, failed collectors, crashes |

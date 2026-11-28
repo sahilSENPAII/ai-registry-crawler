@@ -7,6 +7,7 @@ from functools import lru_cache, partial, update_wrapper
 import boto3
 
 from app.config import config
+from app.crawler.masking import mask, mask_text
 
 
 @dataclass
@@ -29,6 +30,7 @@ class Resource:
 def _resource(session, service, name, arn, role_arn=None, **facts) -> Resource:
     parts = arn.split(":")
     r = Resource(service, name, arn, account_id=parts[4], region=parts[3], role_arn=role_arn, **facts)
+    r.tags, r.env, r.config = mask(r.tags), mask(r.env), mask(r.config)
     if role_arn:
         try:
             r.iam_actions = list(_role_actions(session, role_arn))
@@ -82,7 +84,7 @@ def collect_lambda(session, fetch_code):
             config={"runtime": fn.get("Runtime"), "handler": fn.get("Handler"), "description": fn.get("Description", "")},
         )
         try:
-            r.code = fetch_code(fn["FunctionName"])
+            r.code = {path: mask_text(text) for path, text in fetch_code(fn["FunctionName"]).items()}
         except Exception as e:
             r.errors.append(f"code: {e}")
         resources.append(r)
