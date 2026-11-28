@@ -9,7 +9,7 @@ Each `ai_registry` row is one entry in the ISO/IEC 42001 AI system inventory. Bu
 | `resource_arn`, `name`, `service`, `account_id`, `region` | Collector | Locates the system (A.6.2.7 technical documentation) |
 | `category`, `is_agent`, `agent_score`, `evidence` | Classifier | What the system is and why we think so (A.6.2.7) |
 | `decided_by` | Crawler | Who made the AI and agent call: `rules`, `llm` (a verdict that passed the validator) or `rules_fallback` (the LLM's verdict was missing or rejected) |
-| `llm_verdict` | Crawler, LLM mode | The LLM's verdict, reasoning and evidence quotes, plus `rejected` reasons when it was not accepted (A.6.2.7) |
+| `llm_verdict` | Crawler, LLM mode | The LLM's verdict, reasoning and evidence quotes, plus `rejected` reasons when it was not accepted and `rejected_items` for models or tools it named that are not in the collected data; those are dropped, never stored as the system's models or tools (A.6.2.7) |
 | `models`, `provider`, `frameworks` | Classifier | Components and third parties in use (A.10.3 suppliers, A.4.4 tooling) |
 | `tools` | Classifier | Actions the system can take; side-effect tools raise risk (A.4.4, A.9.2) |
 | `data_sources`, `data_classification` | Classifier / `data-classification` tag | Data used and its sensitivity (A.4.3 data resources, A.7.5 provenance) |

@@ -38,11 +38,27 @@ def test_quotes_match_ignoring_whitespace():
     assert validate(verdict(evidence_quotes=[quote]), VARIANT["review-sentiment"]) == []
 
 
+@pytest.mark.parametrize("quote", [
+    '"comprehend.detect_sentiment(Text=event[\\"review\\"], LanguageCode=\\"en\\")"',  # wrapped and JSON-escaped
+    "iam actions:\n  comprehend:DetectSentiment",  # with the label it was shown under
+    '"iam actions": comprehend:DetectSentiment',
+])
+def test_quotes_match_what_the_llm_was_shown(quote):
+    assert validate(verdict(evidence_quotes=[quote]), VARIANT["review-sentiment"]) == []
+
+
+@pytest.mark.parametrize("quote", ['"comprehend.detect_sentiment(...)"', "iam actions: comprehend:DetectEntities", "   ",
+                                   "past_the_clip = 1"])
+def test_paraphrased_unshown_or_empty_quotes_are_rejected(quote):
+    r = VARIANT["review-sentiment"]
+    r = dataclasses.replace(r, code={"handler.py": r.code["handler.py"] + "#" * MAX_CODE_CHARS + "\npast_the_clip = 1"})
+    problems = validate(verdict(evidence_quotes=[quote]), r)
+    assert problems and problems[0].startswith("quote not in what the LLM was shown"), problems
+
+
 @pytest.mark.parametrize("overrides, problem", [
-    ({"evidence_quotes": ["bedrock.converse(modelId=MODEL_ID)"]}, "quote not in the collected code or config"),
+    ({"evidence_quotes": ["bedrock.converse(modelId=MODEL_ID)"]}, "quote not in what the LLM was shown"),
     ({"evidence_quotes": []}, "an AI verdict needs at least one evidence quote"),
-    ({"models": ["gpt-4o"]}, "model 'gpt-4o' is not in what was collected"),
-    ({"tools": ["issue_refund"]}, "tool 'issue_refund' is not in what was collected"),
     ({"is_agent": True}, "category ai_agent and is_agent disagree"),
     ({"category": "chatbot"}, "unknown category 'chatbot'"),
     ({"is_ai": False, "is_agent": True, "category": "ai_agent"}, "an agent must also be an AI system"),
@@ -71,6 +87,20 @@ def test_agent_verdict_brings_its_tools_and_models():
     assert decided_by == "llm" and c.is_agent and c.task_type == "agentic_tool_use"
     assert {"name": "issue_refund", "side_effect": True} in c.tools
     assert c.provider == "anthropic/bedrock"
+
+
+def test_ungrounded_models_and_tools_are_dropped_and_never_stored():
+    r = VARIANT["review-sentiment"]
+    v = verdict(models=["Amazon Comprehend", "comprehend"], tools=["issue_refund"])
+    assert validate(v, r) == []
+    c, decided_by, stored = decide(r, classify(r), v)
+    assert decided_by == "llm" and (stored["models"], stored["tools"]) == (["comprehend"], [])
+    assert stored["rejected_items"] == ["model 'Amazon Comprehend' is not in what was collected",
+                                        "tool 'issue_refund' is not in what was collected"]
+    assert "Amazon Comprehend" not in c.models and not any(t["name"] == "issue_refund" for t in c.tools)
+
+    _, decided_by, stored = decide(r, classify(r), {**v, "evidence_quotes": ["made up"]})
+    assert decided_by == "rules_fallback" and stored["rejected"] and stored["models"] == ["comprehend"]
 
 
 def test_rejected_or_missing_verdict_falls_back_to_rules():

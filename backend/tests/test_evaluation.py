@@ -1,6 +1,9 @@
+import dataclasses
+
 import pytest
 
-from app import evaluation
+from app import cli, evaluation
+from app.config import config
 from app.evaluation import choice, evaluate, report, scores
 from app.llm import FakeLLM, reply, tool_use
 
@@ -64,6 +67,18 @@ def test_another_model_must_be_clearly_better_at_agents(result, silent):
     assert gain >= 0.05
     assert choice([silent, result]) == result["model"]
     assert choice([result, silent]) == choice([result, result]) == result["model"]
+
+
+def test_evaluate_keeps_the_hand_written_history(tmp_path, monkeypatch):
+    path = tmp_path / "evaluation.md"
+    path.write_text("# old report\n\n## Validator history\n\nwritten by hand\n")
+    monkeypatch.setattr(cli, "REPORT", path)
+    monkeypatch.setattr(cli, "config", dataclasses.replace(config, llm_eval_models=["au.anthropic.claude-haiku-5-5"]))
+    monkeypatch.setattr(cli, "make_llm", lambda session, model: FakeLLM(oracle, model_id=model))
+    cli.evaluate()
+    md = path.read_text()
+    assert "# old report" not in md and "## Scores, validator v2" in md
+    assert md.endswith("\n## Validator history\n\nwritten by hand\n")
 
 
 def test_report_names_models_that_could_not_run(result):

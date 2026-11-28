@@ -20,7 +20,7 @@ pytestmark = pytest.mark.skipif(
 SALES_VERDICT = {
     "name": "sales-research-agent", "is_ai": True, "is_agent": True, "category": "ai_agent",
     "reasoning": "The model picks CRM and web tools in a loop until it has a briefing.",
-    "evidence_quotes": ['tools=TOOLS, tool_choice="auto"'], "models": ["gpt-4o"], "tools": ["web_search"],
+    "evidence_quotes": ['tools=TOOLS, tool_choice="auto"'], "models": ["gpt-4o"], "tools": ["web_search", "bing_search"],
 }
 
 
@@ -77,6 +77,10 @@ def test_llm_plans_the_crawl_and_judges_what_the_rules_are_unsure_about(conn):
     assert sales["decided_by"] == "llm" and sales["is_agent"]
     assert sales["llm_verdict"]["reasoning"] == SALES_VERDICT["reasoning"]
     assert {"signal": "llm_quote", "weight": 0.0, "detail": 'tools=TOOLS, tool_choice="auto"'} in sales["evidence"]
+    dropped = ["tool 'bing_search' is not in what was collected"]
+    assert sales["llm_verdict"]["rejected_items"] == dropped and sales["llm_verdict"]["tools"] == ["web_search"]
+    assert "bing_search" not in {t["name"] for t in sales["tools"]}
+    assert llm.requests[3][-1]["content"][0]["toolResult"]["content"][0]["json"] == {"accepted": True, "dropped": dropped}
     assert rows["refund-agent"]["decided_by"] == "rules" and rows["refund-agent"]["llm_verdict"] is None
 
     lambdas = llm.requests[1][-1]["content"][0]["toolResult"]["content"][0]["json"]["resources"]
@@ -109,7 +113,7 @@ def test_rejected_verdict_falls_back_to_rules_and_is_flagged(estate):
     run_id = crawl(conn, llm)["run_id"]
     sales = registry(conn)["sales-research-agent"]
     assert sales["decided_by"] == "rules_fallback" and sales["is_agent"]
-    assert sales["llm_verdict"]["rejected"][0].startswith("quote not in the collected code or config")
+    assert sales["llm_verdict"]["rejected"][0].startswith("quote not in what the LLM was shown")
     assert llm.requests[3][-1]["content"][0]["toolResult"]["status"] == "error"
     finding = observe(conn, run_id)["llm_verdict_rejected"]
     assert finding["severity"] == "medium" and finding["agent_name"] == "aws-ai-crawler"

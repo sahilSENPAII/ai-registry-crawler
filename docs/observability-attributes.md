@@ -25,7 +25,7 @@ OpenTelemetry GenAI semantic conventions where one exists.
 | `internal` | Custom | `attributes` | Marks the crawler's and this agent's own spans so they are never shadow agents |
 | `crawler.llm.*`, `crawler.decided_by.*` | Custom, on the crawler's run span | `attributes` | The LLM's model, calls, tokens, cost, step budget and whether it ran out; how many resources each method decided |
 | `crawler.guardrail` | Custom, on a crawler collector span | `attributes` | The planner never called this collector, so the guardrail ran it |
-| `crawler.resource`, `crawler.verdict.rejected` | Custom, on `inspect_resource` / `record_verdict` spans | `attributes` | Which resource the LLM looked at, and why the validator rejected its verdict |
+| `crawler.resource`, `crawler.verdict.rejected`, `crawler.verdict.rejected_items` | Custom, on `inspect_resource` / `record_verdict` spans | `attributes` | Which resource the LLM looked at, why the validator rejected its verdict, and the models or tools it named that were not in the collected data, which are dropped |
 
 Every span keeps its full attribute map in `agent_traces.attributes`. Before storing, any
 attribute whose key matches `email|phone|ssn|card|password|address` (case-insensitive),

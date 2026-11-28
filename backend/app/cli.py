@@ -7,7 +7,7 @@ from app import aws, db, store
 from app.config import config
 from app.crawler.classifier import classify
 from app.crawler.collectors import collect_all
-from app.evaluation import REPORT, choice, method_columns, report
+from app.evaluation import HISTORY, REPORT, choice, method_columns, report
 from app.evaluation import evaluate as run_evaluation
 from app.llm import make_llm
 from app.pipeline import run_discovery
@@ -145,7 +145,8 @@ def evaluate() -> None:
                 raise
             skipped[model] = f"{type(e).__name__}: {e}"
             print(f"skipped {model}: {skipped[model]}")
-    REPORT.write_text(report(results, skipped))
+    history = REPORT.read_text().partition(HISTORY) if REPORT.exists() else ("", "", "")
+    REPORT.write_text(report(results, skipped) + (f"\n{history[1]}{history[2]}" if history[1] else ""))
     print(f"{'METHOD':<20}{'AI P':>7}{'AI R':>7}{'AI F1':>7}{'AGENT P':>9}{'AGENT R':>9}{'AGENT F1':>10}{'CALLS':>7}{'COST':>10}")
     for name, result, key in method_columns(results):
         m, u = result["metrics"][key], result["usage"][key]

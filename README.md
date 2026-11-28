@@ -210,11 +210,13 @@ The loop:
 model call, a Bedrock agent, an ML image, a workflow model step, an agent framework env var) or
 no AI signal and no model mentioned at all, together with an agent score of 0.2 or less, or 0.8
 or more. Otherwise the LLM's verdict `{is_ai, is_agent, category, reasoning, evidence_quotes}`
-is used if it passes the validator: every quote must appear in the collected code or config,
-models and tools it names must appear there too, and the category must agree with `is_agent`.
-A rejected verdict goes back to the LLM as a tool error so it can retry within the budget; if
-none is accepted the rules decide. `ai_registry.decided_by` is `rules`, `llm` or
-`rules_fallback`, and `llm_verdict` keeps the verdict and any rejection reasons. The system page
+is used if it passes the validator. Every quote must appear in the text the LLM was shown,
+ignoring whitespace, wrapping quotes, JSON escapes and a label from that text, and the category
+must agree with `is_agent`. Models and tools it names that are not in the collected data are
+dropped and recorded, never stored. A rejected verdict goes back to the LLM as a tool error so
+it can retry within the budget; if none is accepted the rules decide. `ai_registry.decided_by`
+is `rules`, `llm` or `rules_fallback`, and `llm_verdict` keeps the verdict, any rejection
+reasons and any dropped names. The system page
 shows both.
 
 **The crawler is an observed agent.** Every LLM call is a `chat` span under `aws-ai-crawler`
@@ -241,30 +243,26 @@ is in [docs/evaluation.md](docs/evaluation.md).
 | Method | is_ai F1 | is_agent F1 | LLM calls | Rejected verdicts | Cost |
 |---|---|---|---|---|---|
 | rules | 0.78 | 0.71 | 0 | - | $0 |
-| gpt-oss-20b | 0.97 | 0.90 | 41 | 20 | $0.0085 |
-| hybrid with gpt-oss-20b | 0.87 | 0.90 | 23 | 15 | $0.0050 |
-| gpt-oss-120b | 0.98 | 0.95 | 41 | 17 | $0.0147 |
-| hybrid with gpt-oss-120b | 0.91 | 0.95 | 23 | 11 | $0.0083 |
+| gpt-oss-120b | 0.98 | 0.95 | 41 | 6 | $0.0150 |
+| hybrid with gpt-oss-120b | 0.98 | 1.00 | 23 | 3 | $0.0085 |
+| gpt-oss-20b | 0.95 | 0.90 | 41 | 10 | $0.0084 |
+| hybrid with gpt-oss-20b | 0.93 | 0.90 | 23 | 5 | $0.0046 |
 
 - **It ran on Groq, not Bedrock.** The AWS test account got "not available for this account" for
   Anthropic models and had every Nova quota at 0. The Gemini free tier allowed 20 Flash requests
   a day, where one model needs 41, and no Pro requests. Groq's Llama models were not available to
   the key, so gpt-oss-120b stands in for a 70B-class model. Only synthetic code and config were
   sent.
-- **Model choice.** The hybrid with gpt-oss-120b beat gpt-oss-20b by 0.052 agent F1, just over
-  the 0.05 bar, so `openai/gpt-oss-120b` is the Groq default. Bedrock with Claude Haiku 5.5 stays
-  the default provider. The margin is one resource, `pydantic-ai-agent`. An earlier run, whose
-  120b half failed on a dropped connection, scored gpt-oss-20b's hybrid at 0.95, so the gap is
-  within run-to-run variation.
-- **The validator costs recall.** It rejects 17 to 20 of each model's 41 verdicts, mostly over
-  formatting rather than invented evidence:
-  - quotes that include the context's labels, such as `iam actions:`;
-  - quotes wrapped in extra quotation marks or JSON escapes;
-  - service names such as Textract given as models or tools.
-
-  So each model alone scores higher on is_ai than its hybrid does, though the hybrid makes no
-  false positives. Matching quotes against the text the LLM was shown would recover most of
-  these. The validator was not changed after the results came in.
+- **Model choice.** `openai/gpt-oss-120b` is the Groq default. Its hybrid beat gpt-oss-20b's by
+  0.10 agent F1 in this run, and by 0.052 in the first validator v1 run. Bedrock with Claude
+  Haiku 5.5 stays the default provider.
+- **Validator v2 is a bug fix.** v1 checked quotes against the collected data instead of the text
+  the LLM was shown, and it rejected a whole verdict over one ungrounded model or tool name. v2
+  matches the shown text, tolerates wrapping quotes, JSON escapes and labels from that text, and
+  drops ungrounded names instead of storing them. On the same verdicts, the hybrid's rejections
+  fell from 14 to 5 (gpt-oss-20b) and from 10 to 3 (gpt-oss-120b). The hybrid still makes no
+  false positives. The prompts, variants and thresholds are unchanged; see
+  [docs/evaluation.md](docs/evaluation.md#validator-history) for the v1 tables.
 
 ## Running against a real AWS account
 
@@ -350,7 +348,7 @@ cd backend
 TEST_DATABASE_URL=postgresql://registry:registry@localhost:5433/registry_test pytest -q
 ```
 
-221 tests. Tests set fake AWS credentials, so one that forgets the mock fails instead of reaching a real account. Without `TEST_DATABASE_URL` the database tests are skipped with a clear message;
+228 tests. Tests set fake AWS credentials, so one that forgets the mock fails instead of reaching a real account. Without `TEST_DATABASE_URL` the database tests are skipped with a clear message;
 they truncate every table, so never point them at the main database.
 
 | File | Covers |

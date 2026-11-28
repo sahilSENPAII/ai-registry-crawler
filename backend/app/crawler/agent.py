@@ -175,15 +175,19 @@ class CrawlerAgent:
         start, name = datetime.now(timezone.utc), args.get("name")
         found = self._find(name)
         problems = hybrid.validate(args, found[0]) if found else [f"no collected resource named {name!r}"]
+        dropped = hybrid.ground(args, found[0])[1] if found else []
         if found:
             self.verdicts[name] = args
         attrs = {"gen_ai.tool.call.arguments": json.dumps(args), "crawler.resource": name}
-        self._span("record_verdict", start, attrs | ({"crawler.verdict.rejected": problems} if problems else {}))
+        attrs |= {"crawler.verdict.rejected": problems} if problems else {}
+        attrs |= {"crawler.verdict.rejected_items": dropped} if dropped else {}
+        self._span("record_verdict", start, attrs)
         if problems:
             return {"accepted": False, "problems": problems}
+        result = {"accepted": True} | ({"dropped": dropped} if dropped else {})
         if hybrid.confident(*found):
-            return {"accepted": True, "note": "the rules are confident about this resource, so they decide it"}
-        return {"accepted": True}
+            return result | {"note": "the rules are confident about this resource, so they decide it"}
+        return result
 
     def _register(self, run_id):
         counts = {"resources_scanned": 0, "ai_systems_found": 0, "agents_found": 0}

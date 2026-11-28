@@ -114,12 +114,15 @@ export default async function SystemPage({ params }: { params: Promise<{ id: str
                 {s.llm_verdict.reasoning}
               </p>
             )}
-            {s.llm_verdict?.rejected && (
+            {(s.llm_verdict?.rejected || s.llm_verdict?.rejected_items) && (
               <ul className="mt-3 flex flex-col gap-1 text-sm text-ink-2">
-                {s.llm_verdict.rejected.map((reason) => (
-                  <li key={reason} className="flex gap-2">
+                {[
+                  ...(s.llm_verdict.rejected ?? []).map((reason) => `Not accepted: ${reason}`),
+                  ...(s.llm_verdict.rejected_items ?? []).map((reason) => `Dropped: ${reason}`),
+                ].map((line) => (
+                  <li key={line} className="flex gap-2">
                     <span className="text-ink-3" aria-hidden>-</span>
-                    Not accepted: {reason}
+                    {line}
                   </li>
                 ))}
               </ul>

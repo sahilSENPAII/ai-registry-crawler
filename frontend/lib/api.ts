@@ -97,6 +97,7 @@ export type LlmVerdict = {
   reasoning?: string;
   evidence_quotes?: string[];
   rejected?: string[];
+  rejected_items?: string[];
 };
 
 export type SystemDetail = SystemRow & {

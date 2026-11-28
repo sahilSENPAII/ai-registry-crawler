@@ -1,6 +1,7 @@
 """Hybrid classification: the rules decide when they are confident, otherwise an LLM verdict that passes the validator.
 Pure apart from the LLM call in ask()."""
 import json
+import re
 
 from app.crawler.classifier import MODEL_ID, Classification, classify
 from app.crawler.collectors import Resource
@@ -8,6 +9,9 @@ from app.crawler.collectors import Resource
 CLEAR_AI = {"model_call", "bedrock_agent", "ml_image", "workflow_ai_step", "agent_framework_env"}
 CATEGORIES = ["ai_agent", "genai_application", "ai_workflow", "predictive_ml"]
 MAX_CODE_CHARS = 6000
+VALIDATOR_VERSION = 2
+JSON_ESCAPE = re.compile(r'\\(["\\/nt])')
+LABEL = re.compile(r'^"?([\w .\-/]+)"?\s*:\s*')  # e.g. `iam actions:` or `"env":`
 
 DEFINITIONS = """Definitions used by the AI registry:
 - An AI system itself sends requests to a model or an AI service (an LLM API, Bedrock, a SageMaker endpoint, \
@@ -83,8 +87,39 @@ def _squash(text):
     return " ".join(text.split())
 
 
+def _unescape(text):
+    return JSON_ESCAPE.sub(lambda m: {"n": "\n", "t": "\t"}.get(m.group(1), m.group(1)), text)
+
+
+def _quoted(quote: str, shown: str) -> bool:
+    """Whether a quote is in the text the LLM was shown, ignoring whitespace, quotes wrapped around it, JSON escapes,
+    and a label prefix from that text such as `iam actions:`."""
+    if not isinstance(quote, str):
+        return False
+    plain = _unescape(quote.strip())
+    if len(plain) >= 2 and plain[0] == plain[-1] and plain[0] in "\"'`":
+        plain = plain[1:-1]
+    variants = [quote, plain]
+    label = LABEL.match(plain)
+    if label and f"{label.group(1)}:" in shown:
+        variants.append(plain[label.end():])
+    texts = [_squash(shown), _squash(_unescape(shown))]
+    return any(_squash(v) and any(_squash(v) in t for t in texts) for v in variants)
+
+
+def ground(verdict: dict, resource: Resource) -> tuple[dict, list[str]]:
+    """The verdict without the models and tools that are not in the collected data, and why each was dropped."""
+    text, kept, dropped = _collected_text(resource), dict(verdict), []
+    for kind in ("models", "tools"):
+        value = verdict.get(kind)
+        names = value if isinstance(value, list) else [value] if value else []
+        kept[kind] = [n for n in names if isinstance(n, str) and n in text]
+        dropped += [f"{kind[:-1]} {n!r} is not in what was collected" for n in names if n not in kept[kind]]
+    return kept, dropped
+
+
 def validate(verdict: dict, resource: Resource) -> list[str]:
-    """Why a verdict cannot be trusted; empty when it can."""
+    """Why a verdict cannot be trusted; empty when it can. Ungrounded models and tools are dropped by ground() instead."""
     if not isinstance(verdict.get("is_ai"), bool) or not isinstance(verdict.get("is_agent"), bool):
         return ["is_ai and is_agent must be true or false"]
     problems = []
@@ -98,11 +133,8 @@ def validate(verdict: dict, resource: Resource) -> list[str]:
     quotes = verdict.get("evidence_quotes") or []
     if is_ai and not quotes:
         problems.append("an AI verdict needs at least one evidence quote")
-    text = _collected_text(resource)
-    squashed = _squash(text)
-    problems += [f"quote not in the collected code or config: {q[:80]!r}" for q in quotes if _squash(q) not in squashed]
-    problems += [f"{kind[:-1]} {name!r} is not in what was collected"
-                 for kind in ("models", "tools") for name in verdict.get(kind) or [] if name not in text]
+    shown = context(resource)
+    problems += [f"quote not in what the LLM was shown: {str(q)[:80]!r}" for q in quotes if not _quoted(q, shown)]
     return problems
 
 
@@ -111,10 +143,12 @@ def decide(resource: Resource, rules: Classification, verdict: dict | None,
     """-> (classification, decided_by, llm_verdict) for a resource the rules are not confident about."""
     if verdict is None:
         return rules, "rules_fallback", {"rejected": [missing]}
+    grounded, dropped = ground(verdict, resource)
+    stored = grounded | ({"rejected_items": dropped} if dropped else {})
     problems = validate(verdict, resource)
     if problems:
-        return rules, "rules_fallback", {**verdict, "rejected": problems}
-    return classify(resource, verdict), "llm", verdict
+        return rules, "rules_fallback", stored | {"rejected": problems}
+    return classify(resource, grounded), "llm", stored
 
 
 def ask(llm, resource: Resource) -> dict | None:
