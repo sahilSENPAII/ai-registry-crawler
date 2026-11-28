@@ -1,8 +1,8 @@
-fastapi
-uvicorn[standard]
-psycopg[binary]
-boto3
-moto[all]
-pytest
-httpx
-botocore[crt]
+fastapi==0.165.0
+uvicorn[standard]==0.54.0
+psycopg[binary]==3.3.9
+boto3==1.44.11
+moto[all]==5.2.6
+pytest==9.2.0
+httpx==0.28.1
+botocore[crt]==1.44.11

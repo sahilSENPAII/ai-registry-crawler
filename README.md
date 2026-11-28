@@ -72,7 +72,8 @@ cd ../frontend
 npm install && npm run dev                   # dashboard on :3000
 ```
 
-Copy `.env.example` to `.env` to see or override every setting.
+Copy `.env.example` to `backend/.env` to override settings for local runs; real environment variables win over the
+file. In Docker the API only gets what `docker compose` sets, and `.env` files are kept out of the images.
 
 ### CLI
 
@@ -137,7 +138,7 @@ residency switch or switch, with a one-sentence rationale. Details in
 
 The seed (`backend/app/seed/`) builds a believable company account. No resource carries a tag
 that gives away its category; the ground truth lives only in `seed/expected.py`, which only
-tests read.
+the tests and the evaluation read.
 
 | Workload | Service | What it is | Classified as |
 |---|---|---|---|
@@ -170,6 +171,8 @@ The agents' CloudWatch logs hold 10 to 20 normal runs each over 14 days, plus ei
 | g | procurement-agent creates a $25k purchase order after an approved human step (control case) | nothing, as intended |
 | h | marketing-copy-agent logs activity but is in no inventory | high: shadow agent, 52 spans in 13 runs, not in the AI registry |
 
+The latest `discover` reports exactly these 7 findings: 1 critical, 2 high, 3 medium and 1 low.
+
 ## Key design decisions
 
 - **Rules first, the LLM only where they are unsure.** Classification, risk, behaviour checks and model fit are deterministic rules, so every verdict is reproducible, auditable against its evidence and free to run. In LLM mode the LLM decides only the resources the rules are not confident about, and only when its quotes check out.
@@ -189,12 +192,16 @@ picks where the LLM runs:
 
 - **`bedrock`** (the default, for real deployments): Bedrock Converse, so an account's code and
   config never leave AWS. `LLM_MODEL_ID` defaults to the Claude Haiku 5.5 inference profile
-  `au.anthropic.claude-haiku-5-5`.
+  `au.anthropic.claude-haiku-5-5`. This path is tested only with a fake client and has not
+  completed a live call: the test account had no usable Bedrock model access.
 - **`gemini`** and **`groq`**: the Gemini API or Groq's OpenAI-compatible API, with
   `GEMINI_API_KEY` or `GROQ_API_KEY` read from `backend/.env` and never logged. `LLM_MODEL_ID`
   defaults to `gemini-3-flash-preview` or `openai/gpt-oss-120b`. Code and config then leave AWS,
   so use these only for synthetic data or where that is acceptable. Rate limits are waited out
   as the server asks; a daily quota fails the call.
+
+Live LLM calls so far are the evaluation below and one planner run over the simulated estate
+(gpt-oss-120b, 9 steps, $0.004 at list price), both on Groq.
 
 The loop:
 
@@ -225,7 +232,8 @@ activity as "Our crawler", and four rules watch it: `collector_failed`, `llm_ver
 `slow_run` and `llm_budget_exceeded` (see
 [docs/observability-attributes.md](docs/observability-attributes.md)).
 
-In mock mode only Bedrock Runtime passes through moto to real AWS (Gemini calls never go through moto), so a Bedrock LLM needs real
+In mock mode only Bedrock Runtime is set to pass through moto to real AWS (Gemini and Groq calls never go through
+moto); that passthrough has not carried a successful call yet. A Bedrock LLM needs real
 credentials and a region in `AWS_REGIONS` where the profile exists. In `aws` mode the crawler's
 role also needs `bedrock:InvokeModel` on the inference profile and its foundation model, on top
 of the read-only policy.
@@ -248,8 +256,8 @@ is in [docs/evaluation.md](docs/evaluation.md).
 | gpt-oss-20b | 0.95 | 0.90 | 41 | 10 | $0.0084 |
 | hybrid with gpt-oss-20b | 0.93 | 0.90 | 23 | 5 | $0.0046 |
 
-- **It ran on Groq, not Bedrock.** The AWS test account got "not available for this account" for
-  Anthropic models and had every Nova quota at 0. The Gemini free tier allowed 20 Flash requests
+- **It ran on Groq because Bedrock was unusable.** The AWS test account got "not available for
+  this account" for Anthropic models and had every Nova quota at 0. The Gemini free tier allowed 20 Flash requests
   a day, where one model needs 41, and no Pro requests. Groq's Llama models were not available to
   the key, so gpt-oss-120b stands in for a 70B-class model. Only synthetic code and config were
   sent.
@@ -285,7 +293,10 @@ DISCOVERY_MODE=aws backend/.venv/bin/python testbed/crawl_readonly.py   # crawl 
 backend/.venv/bin/python testbed/teardown.py                            # delete everything tagged testbed=ai-registry-crawler
 ```
 
-**Deployed**, all tagged `testbed=ai-registry-crawler`, nothing that bills while idle:
+The test covered 4 Lambdas and 2 log groups, nothing else: no Bedrock agents, SageMaker, Step
+Functions, ECS or LLM calls.
+
+**Deployed**, all tagged `testbed=ai-registry-crawler`, nothing that runs or bills by the hour:
 
 - Four Lambdas from the seed with its code, env vars and tags: `refund-agent`, `support-chatbot`,
   `ticket-classifier`, `image-thumbnailer`. Each has its own role with the seed's IAM actions.
@@ -336,7 +347,7 @@ changes.
 - Seeded traffic is low, so monthly cost estimates use the default volume (`DEFAULT_MONTHLY_REQUESTS`) with token profiles from the logs.
 - The API has no authentication.
 - In LLM mode the planner refers to resources by name, so two resources with the same name in different services would be confused.
-- The crawler's LLM cost uses Anthropic's list price for Haiku 5.5; Bedrock geo inference profiles can cost slightly more.
+- LLM costs are list prices (Anthropic, Google AI Studio's paid tier, Groq); the Groq runs used the free tier, and Bedrock geo inference profiles can cost slightly more.
 - An unknown system id renders the not-found page with HTTP 200, because the page streams before the 404 is known.
 
 ## Tests
