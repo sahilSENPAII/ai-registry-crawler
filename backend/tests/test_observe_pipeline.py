@@ -65,3 +65,16 @@ def test_rerun_does_not_duplicate(conn):
     assert conn.execute(agent_spans).fetchone()["n"] == before_spans == 564
     assert counts(conn)[1] == before_findings == 7
     assert conn.execute("SELECT findings_count FROM discovery_runs WHERE id = %s", (run_id,)).fetchone()["findings_count"] == 7
+
+
+def test_duplicate_log_events_are_read_once(conn):
+    logs = aws.session().client("logs")
+    group = f"{config.agent_log_prefix}refund-agent"
+    events = [{"timestamp": e["timestamp"], "message": e["message"]}
+              for page in logs.get_paginator("filter_log_events").paginate(logGroupName=group) for e in page["events"]]
+    logs.create_log_stream(logGroupName=group, logStreamName="redelivered")
+    logs.put_log_events(logGroupName=group, logStreamName="redelivered", logEvents=events)
+    run_id = conn.execute("SELECT max(id) AS id FROM discovery_runs").fetchone()["id"]
+    result = ObservabilityAgent(aws.session(), conn, run_id).run()
+    assert result["spans_per_agent"]["refund-agent"] == len(events)
+    assert counts(conn)[1] == 7

@@ -188,7 +188,9 @@ class ObservabilityAgent:
             for g in group["logGroups"]:
                 step_start = datetime.now(timezone.utc)
                 pages = logs.get_paginator("filter_log_events").paginate(logGroupName=g["logGroupName"], startTime=since)
-                group_spans = [normalise(e) for page in pages for e in page["events"]]
+                # CloudWatch can hold the same span twice (exporter retries, a log group recreated with its old events)
+                group_spans = list({(s["trace_id"], s["span_id"]): s for s in
+                                    (normalise(e) for page in pages for e in page["events"])}.values())
                 for agent in {s["attributes"]["gen_ai.agent.name"] for s in group_spans}:
                     row = by_log_group.get(g["logGroupName"]) or by_name.get(agent)
                     if row:

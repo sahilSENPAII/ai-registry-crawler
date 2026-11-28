@@ -188,12 +188,62 @@ policy in [docs/crawler-iam-policy.json](docs/crawler-iam-policy.json), and run
 `AGENT_LOG_PREFIX` (default `/ai/agents/`). From the API, `POST /discovery/run` only runs in mock
 mode, because the API has no authentication.
 
-This mode has not been tested against a real account.
+boto3 needs `botocore[crt]` (in `requirements.txt`) to use credentials from `aws login`.
+
+## Tested on a real AWS account
+
+Region `ap-southeast-2`, in an otherwise empty account, using the scripts in `testbed/` (run from
+the repo root with `AWS_REGIONS=ap-southeast-2`):
+
+```bash
+backend/.venv/bin/python testbed/deploy.py                              # idempotent
+DISCOVERY_MODE=aws backend/.venv/bin/python testbed/crawl_readonly.py   # crawl as the read-only role
+backend/.venv/bin/python testbed/teardown.py                            # delete everything tagged testbed=ai-registry-crawler
+```
+
+**Deployed**, all tagged `testbed=ai-registry-crawler`, nothing that bills while idle:
+
+- Four Lambdas from the seed with its code, env vars and tags: `refund-agent`, `support-chatbot`,
+  `ticket-classifier`, `image-thumbnailer`. Each has its own role with the seed's IAM actions.
+  They are never invoked.
+- `/ai/agents/refund-agent` with 6 runs (46 spans), one of them the $1,200 refund with no approval,
+  and `/ai/agents/marketing-copy-agent` with 3 runs (12 spans) from an agent in no inventory.
+- `ai-registry-crawler-readonly`, a role with exactly [docs/crawler-iam-policy.json](docs/crawler-iam-policy.json).
+
+**Found** by `DISCOVERY_MODE=aws python -m app.cli discover` on a fresh database:
+
+| Planted | Found |
+|---|---|
+| 3 AI systems, 1 of them an agent; `image-thumbnailer` is not AI | 4 resources scanned, 3 AI systems, 1 agent, thumbnailer skipped |
+| Same records as the simulated estate | Every registry field identical to the mock run of the same Lambdas, including evidence read from the downloaded code |
+| $1,200 refund without approval | `side_effect_without_approval`, critical, threshold read from the live `APPROVAL_THRESHOLD` |
+| Shadow agent | `unregistered_agent`, high, 12 spans in 3 runs |
+| Model fit | refund-agent keep, support-chatbot downgrade, ticket-classifier residency, as in mock mode |
+
+**Broke, and how it was fixed:**
+
+- The testbed first deleted and recreated each log group on rerun so spans would not pile up.
+  CloudWatch kept the old events, so the second deploy left every span twice (92 events for 46
+  spans) and the crawler reported the $1,200 refund twice. The database already ignored the
+  repeated span ids, but the rules ran over the raw list. The observability agent now reads each
+  `(trace_id, span_id)` once, which also covers exporters that retry, with a test that redelivers
+  a log group's events. The testbed now writes its spans only when its log stream is new.
+
+Code download from the presigned `GetFunction` URL, pagination, tags, IAM role reads and log
+timestamps worked unchanged. Crawling as the read-only role gave a registry, findings and
+recommendations identical to the full-access run, with no denied calls, so the policy needed no
+changes.
 
 ## Limitations
 
 - IAM Deny statements and conditions are ignored when listing a role's actions.
 - Only the first region in `AWS_REGIONS` is crawled.
+- The real-account test had no Bedrock agents, SageMaker endpoints, Step Functions or ECS task
+  definitions, so those collectors and their IAM actions are only tested against moto.
+- Errors on a single resource (code download, IAM reads) do not fail a run and are not stored with
+  it; `testbed/crawl_readonly.py` prints them.
+- CloudWatch events cannot be deleted one by one, so the testbed writes its spans once. After
+  `LOG_LOOKBACK_HOURS` (30 days) they fall out of the window; tear down and deploy again.
 - `task_type` and "decides about people" come from keyword rules tuned to this estate.
 - Read-only agents (no side-effect tools, no approval step) count as assistive.
 - Findings are recomputed every run and overwrite the previous set, so there is no findings history.
@@ -212,7 +262,7 @@ cd backend
 TEST_DATABASE_URL=postgresql://registry:registry@localhost:5433/registry_test pytest -q
 ```
 
-155 tests. Without `TEST_DATABASE_URL` the database tests are skipped with a clear message;
+159 tests. Without `TEST_DATABASE_URL` the database tests are skipped with a clear message;
 they truncate every table, so never point them at the main database.
 
 | File | Covers |
@@ -223,6 +273,7 @@ they truncate every table, so never point them at the main database.
 | `test_crawler.py` | Crawls into Postgres, reruns, retirement, self-tracing, failed collectors, crashes |
 | `test_observability.py`, `test_observe_pipeline.py` | Redaction, one test per behaviour rule, the $25k control, end-to-end findings matching the ground truth |
 | `test_recommend.py`, `test_recommend_pipeline.py` | Eligibility and residency across all tasks, each outcome, volume rules, the estate's outcomes |
+| `test_testbed.py` | Testbed deploy is idempotent and tags everything; teardown removes only tagged resources |
 | `test_api.py`, `test_schema.py`, `test_health.py` | Every endpoint, filters, 404s, 409 on overlap, startup discovery; schema idempotency and constraints |
 
 Frontend: `cd frontend && npm run lint && npm run build`.
@@ -241,6 +292,7 @@ backend/
 frontend/
   app/                Overview, inventory, agents, issues, model fit pages
   lib/                typed API client and formatting
+testbed/              real-AWS deploy, read-only crawl and teardown
 docs/                 data model, registry fields, observability, model fit, IAM policy, demo script
 docker-compose.yml
 ```
