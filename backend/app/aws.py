@@ -20,7 +20,8 @@ def simulated_aws():
     from app.seed.agent_logs import seed_agent_logs
     from app.seed.estate import seed_estate
 
-    with mock_aws():
+    # Bedrock runtime passes through to real AWS, so the crawler's LLM works on the simulated estate
+    with mock_aws(config={"core": {"passthrough": {"services": ["bedrockruntime"]}}}):
         seed_estate()
         seed_agent_logs()
         yield

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { ApiError, api, type SystemDetail } from "@/lib/api";
 import {
-  AUTONOMY, CATEGORY, OVERSIGHT, RULE, SERVICE, SIGNAL, label, modelName, money, tokens,
+  AUTONOMY, CATEGORY, DECIDED_BY, OVERSIGHT, RULE, SERVICE, SIGNAL, label, modelName, money, tokens,
 } from "@/lib/format";
 
 import { RecommendationCard } from "../../_components/RecommendationCard";
@@ -107,7 +107,24 @@ export default async function SystemPage({ params }: { params: Promise<{ id: str
           </Card>
 
           <Card title="Why we classified it this way" aside={s.is_agent ? `agent score ${s.agent_score} of 1.0` : undefined}>
-            <ul className="flex flex-col">
+            <Facts rows={[["Decided by", label(DECIDED_BY, s.decided_by)]]} />
+            {s.llm_verdict?.reasoning && (
+              <p className="mt-3 text-sm text-ink-2">
+                <span className="text-ink-3">LLM reasoning: </span>
+                {s.llm_verdict.reasoning}
+              </p>
+            )}
+            {s.llm_verdict?.rejected && (
+              <ul className="mt-3 flex flex-col gap-1 text-sm text-ink-2">
+                {s.llm_verdict.rejected.map((reason) => (
+                  <li key={reason} className="flex gap-2">
+                    <span className="text-ink-3" aria-hidden>-</span>
+                    Not accepted: {reason}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <ul className="mt-4 flex flex-col">
               {s.evidence.map((e, i) => (
                 <li key={i} className="flex items-baseline gap-4 border-t border-line py-2 text-sm first:border-t-0">
                   <span className="w-72 shrink-0">{label(SIGNAL, e.signal)}</span>

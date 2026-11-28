@@ -89,11 +89,23 @@ export type Recommendation = {
 
 export type RecommendationRow = Recommendation & { name: string; category: string; risk_level: Risk };
 
+export type DecidedBy = "rules" | "llm" | "rules_fallback";
+export type LlmVerdict = {
+  is_ai?: boolean;
+  is_agent?: boolean;
+  category?: string;
+  reasoning?: string;
+  evidence_quotes?: string[];
+  rejected?: string[];
+};
+
 export type SystemDetail = SystemRow & {
   resource_arn: string;
   account_id: string;
   agent_score: number;
   evidence: Evidence[];
+  decided_by: DecidedBy;
+  llm_verdict: LlmVerdict | null;
   models: string[];
   provider: string | null;
   frameworks: string[];

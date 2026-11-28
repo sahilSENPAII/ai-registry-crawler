@@ -7,7 +7,8 @@ import { Empty, PageHeader, Table, Tag, Td, Th, Time } from "../_components/ui";
 
 export default async function Agents() {
   const agents = await api.agents();
-  const shadow = agents.filter((a) => !a.registered).length;
+  const shadow = agents.filter((a) => !a.registered && !a.internal).length;
+  const registered = agents.filter((a) => a.registered).length;
 
   return (
     <>
@@ -16,7 +17,7 @@ export default async function Agents() {
         description="What each agent did in the activity logs: how often it ran, what it cost and where it went wrong"
       >
         <p className="text-sm text-ink-3 tabular-nums">
-          {agents.length - shadow} registered, {shadow} not in the inventory
+          {registered} registered, {shadow} not in the inventory
         </p>
       </PageHeader>
 
@@ -44,7 +45,15 @@ export default async function Agents() {
                   {a.name}
                 </Link>
               </Td>
-              <Td>{a.registered ? <span className="text-ink-2">Registered</span> : <Tag tone="warn">Shadow agent, not registered</Tag>}</Td>
+              <Td>
+                {a.internal ? (
+                  <Tag tone="accent">Our crawler</Tag>
+                ) : a.registered ? (
+                  <span className="text-ink-2">Registered</span>
+                ) : (
+                  <Tag tone="warn">Shadow agent, not registered</Tag>
+                )}
+              </Td>
               <Td right>{a.runs}</Td>
               <Td right>{tokens(a.tokens)}</Td>
               <Td right>{money(a.cost_usd)}</Td>

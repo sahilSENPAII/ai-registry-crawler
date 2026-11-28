@@ -11,10 +11,10 @@ from app import store
 from app.config import config
 from app.crawler.classifier import WRITE_VERBS
 from app.pricing import cost_usd
-from app.tracing import make_span
+from app.tracing import CRAWLER_AGENT, make_span
 
 AGENT_NAME = "ai-observability-agent"
-THRESHOLDS = {"tool_loop_calls": 4, "token_spike_ratio": 5, "token_spike_min_tokens": 20_000}
+THRESHOLDS = {"tool_loop_calls": 4, "token_spike_ratio": 5, "token_spike_min_tokens": 20_000, "slow_run_ratio": 3}
 SEVERITY = {
     "unregistered_agent": "high",
     "undeclared_tool": "high",
@@ -23,6 +23,10 @@ SEVERITY = {
     "token_spike": "medium",
     "run_error": "medium",
     "approval_denied": "low",
+    "collector_failed": "medium",
+    "llm_verdict_rejected": "medium",
+    "slow_run": "low",
+    "llm_budget_exceeded": "low",
 }
 SENSITIVE_KEY = re.compile(r"email|phone|ssn|card|password|address", re.I)
 
@@ -157,6 +161,33 @@ def detect_anomalies(spans, registry) -> list[dict]:
     return findings
 
 
+def detect_crawler_anomalies(spans) -> list[dict]:
+    """spans: the crawler's own agent_traces rows over the lookback window."""
+    agent, findings = CRAWLER_AGENT, []
+    durations = [s["duration_ms"] for s in spans if s["operation"] == "invoke_agent" and s["duration_ms"] is not None]
+    median = statistics.median(durations) if durations else None
+    for s in spans:
+        a = s["attributes"]
+        if s["operation"] == "execute_tool" and (s["tool_name"] or "").startswith("collect_") and s["status"] == "error":
+            findings.append(_finding("collector_failed", agent, None, f"{s['tool_name']} failed with {s['error_type']}",
+                                     s, tool=s["tool_name"], error_type=s["error_type"]))
+        if a.get("crawler.verdict.rejected"):
+            findings.append(_finding("llm_verdict_rejected", agent, None,
+                                     f"LLM verdict on {a.get('crawler.resource')} rejected: {'; '.join(a['crawler.verdict.rejected'])}",
+                                     s, resource=a.get("crawler.resource"), problems=a["crawler.verdict.rejected"]))
+        if s["operation"] != "invoke_agent":
+            continue
+        if a.get("crawler.llm.budget_exceeded"):
+            findings.append(_finding("llm_budget_exceeded", agent, None,
+                                     f"the planner used all {a.get('crawler.llm.max_steps')} steps without finishing; "
+                                     "the rules covered the rest", s, max_steps=a.get("crawler.llm.max_steps")))
+        if median and s["duration_ms"] and s["duration_ms"] > THRESHOLDS["slow_run_ratio"] * median:
+            findings.append(_finding("slow_run", agent, None,
+                                     f"crawl took {s['duration_ms'] / 1000:.1f} s, {s['duration_ms'] / median:.0f}x the median "
+                                     f"of {median / 1000:.1f} s", s, duration_ms=s["duration_ms"], median_ms=median))
+    return findings
+
+
 class ObservabilityAgent:
     """Ingests /ai/agents/* span logs, links them to the registry and stores behaviour findings."""
 
@@ -177,7 +208,8 @@ class ObservabilityAgent:
         conn, logs = self.conn, self.session.client("logs")
         started = datetime.now(timezone.utc)
         trace_id, root_id = uuid.uuid4().hex, uuid.uuid4().hex[:16]
-        since = int((started - timedelta(hours=config.log_lookback_hours)).timestamp() * 1000)
+        window_start = started - timedelta(hours=config.log_lookback_hours)
+        since = int(window_start.timestamp() * 1000)
 
         rows = store.active_registry(conn)
         by_log_group = {r["log_group"]: r for r in rows if r["log_group"]}
@@ -210,12 +242,14 @@ class ObservabilityAgent:
         store.mark_monitored(conn, [rid for rid in per_registry if rid])
 
         step_start = datetime.now(timezone.utc)
-        findings = detect_anomalies(spans, registry)
+        crawler_spans = store.agent_spans(conn, CRAWLER_AGENT, window_start)
+        findings = detect_anomalies(spans, registry) + detect_crawler_anomalies(crawler_spans)
         store.replace_anomalies(conn, self.run_id, findings)
         own_spans.append(make_span(AGENT_NAME, trace_id, root_id, "execute_tool", "execute_tool detect_anomalies",
                                    step_start, {"gen_ai.tool.name": "detect_anomalies", "observability.findings": len(findings)}))
         own_spans.insert(0, make_span(AGENT_NAME, trace_id, None, "invoke_agent", f"invoke_agent {AGENT_NAME}", started,
-                                      {"observability.spans": len(spans), "observability.findings": len(findings)}))
+                                      {"observability.spans": len(spans), "observability.findings": len(findings)},
+                                      span_id=root_id))
         store.insert_spans(conn, own_spans, self.run_id)
         conn.commit()
 

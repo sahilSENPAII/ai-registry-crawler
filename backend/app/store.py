@@ -4,7 +4,9 @@ from datetime import datetime
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-JSONB_COLUMNS = {"evidence", "models", "tools", "data_sources", "risk_factors", "controls",
+from app.tracing import CRAWLER_AGENT
+
+JSONB_COLUMNS = {"evidence", "llm_verdict", "models", "tools", "data_sources", "risk_factors", "controls",
                  "unused_ai_permissions", "tags"}
 
 
@@ -73,6 +75,11 @@ def insert_spans(conn, spans, run_id, registry_id=None):
 def active_registry(conn):
     return conn.execute("SELECT id, name, service, resource_arn, log_group, tools, category, task_type, models, "
                         "data_classification, risk_level FROM ai_registry WHERE status = 'active' ORDER BY name").fetchall()
+
+
+def agent_spans(conn, agent_name, since):
+    return conn.execute("SELECT * FROM agent_traces WHERE agent_name = %s AND started_at >= %s ORDER BY started_at, id",
+                        (agent_name, since)).fetchall()
 
 
 def mark_monitored(conn, registry_ids):
@@ -214,9 +221,9 @@ def list_agents(conn, include_internal=False):
                    max(t.started_at) AS last_seen
             FROM agent_traces t
             GROUP BY t.agent_name
-            HAVING %s OR NOT bool_or({INTERNAL})
+            HAVING %s OR NOT bool_or({INTERNAL}) OR t.agent_name = %s
             ORDER BY registered, name""",
-        (include_internal,),
+        (include_internal, CRAWLER_AGENT),
     ).fetchall()
 
 

@@ -7,6 +7,9 @@ from app import aws, db, store
 from app.config import config
 from app.crawler.classifier import classify
 from app.crawler.collectors import collect_all
+from app.evaluation import REPORT, choice, method_columns, report
+from app.evaluation import evaluate as run_evaluation
+from app.llm import make_llm
 from app.pipeline import run_discovery
 
 KEY_TAGS = ["owner", "team", "environment", "data-classification", "customer-facing"]
@@ -75,6 +78,11 @@ def _discover(until):
 def _print_crawl(summary):
     print(f"run {summary['run_id']}: {summary['resources_scanned']} resources scanned, "
           f"{summary['ai_systems_found']} AI systems, {summary['agents_found']} agents, {summary['retired']} retired")
+    if summary["llm"]:
+        llm = summary["llm"]
+        print(f"llm: {llm['calls']} calls, ${llm['cost_usd']:.4f}, decided by "
+              f"{', '.join(f'{k} {n}' for k, n in sorted(summary['decided_by'].items()))}"
+              + (" (step budget used up)" if llm["budget_exceeded"] else "") + (f"; {llm['error']}" if "error" in llm else ""))
     for error in summary["errors"]:
         print(f"collector error: {error}")
 
@@ -126,10 +134,32 @@ def discover() -> None:
     print(f"{len(recs)} recommendations: ${current:,.2f}/mo now, ${recommended:,.2f}/mo recommended")
 
 
+def evaluate() -> None:
+    """The only command that always calls the real LLM, through LLM_PROVIDER."""
+    session, results, skipped = aws.session(), [], {}
+    for model in config.llm_eval_models:
+        try:
+            results.append(run_evaluation(make_llm(session, model)))
+        except Exception as e:
+            if not results:  # the default model has to work
+                raise
+            skipped[model] = f"{type(e).__name__}: {e}"
+            print(f"skipped {model}: {skipped[model]}")
+    REPORT.write_text(report(results, skipped))
+    print(f"{'METHOD':<20}{'AI P':>7}{'AI R':>7}{'AI F1':>7}{'AGENT P':>9}{'AGENT R':>9}{'AGENT F1':>10}{'CALLS':>7}{'COST':>10}")
+    for name, result, key in method_columns(results):
+        m, u = result["metrics"][key], result["usage"][key]
+        print(f"{name:<20}" + "".join(f"{m['is_ai'][k]:>7.2f}" for k in ("precision", "recall", "f1"))
+              + "".join(f"{m['is_agent'][k]:>9.2f}" for k in ("precision", "recall")) + f"{m['is_agent']['f1']:>10.2f}"
+              + f"{u[0]:>7}{'$' + format(u[3], '.4f'):>10}")
+    print(f"{len(results[0]['rows'])} resources; default model: {choice(results)}; wrote {REPORT}")
+
+
 def main() -> None:
     commands = {"init": db.init_schema, "reset": db.reset_data, "tables": tables, "estate": estate, "collect": collect,
                 "classify": classify_estate, "crawl": crawl, "show": show, "observe": observe,
-                "recommend": recommend, "discover": discover}
+                "recommend": recommend, "discover": discover,
+                "evaluate": evaluate}
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     parser.add_argument("cmd", choices=commands)
     commands[parser.parse_args().cmd]()

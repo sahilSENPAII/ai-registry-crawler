@@ -17,7 +17,7 @@ const LEGEND = ["chat", "execute_tool", "retrieval", "human_approval"];
 function title(s: Span): string {
   const a = s.attributes;
   if (s.operation === "chat") return modelName(s.model);
-  if (s.operation === "execute_tool") return s.tool_name ?? "tool";
+  if (s.operation === "execute_tool") return [s.tool_name ?? "tool", a["crawler.resource"]].filter(Boolean).join(" ");
   if (s.operation === "retrieval") return String(a["gen_ai.data_source.id"] ?? "knowledge base");
   if (s.operation === "human_approval") return `${a["approval.action"] ?? "action"}: ${a["approval.decision"] ?? "pending"}`;
   return s.agent_name;
@@ -65,6 +65,8 @@ export function Waterfall({ spans, declared }: { spans: Span[]; declared: Tool[]
             const sideEffect = tool != null && sideEffects.has(tool);
             const undeclared = tool != null && declaredNames != null && !declaredNames.has(tool);
             const value = amount(s);
+            const guardrail = Boolean(s.attributes["crawler.guardrail"]);
+            const rejected = Boolean(s.attributes["crawler.verdict.rejected"]);
             return (
               <li key={s.id}>
                 <button
@@ -91,6 +93,9 @@ export function Waterfall({ spans, declared }: { spans: Span[]; declared: Tool[]
                     {value != null && <span className="text-ink-2 tabular-nums">{money(value)}</span>}
                     {sideEffect && <span className="font-medium text-ink-2">Changes data</span>}
                     {undeclared && <span className="font-medium text-high">Not declared</span>}
+                    {guardrail && <span className="font-medium text-ink-2">Run by guardrail</span>}
+                    {rejected && <span className="font-medium text-high">Verdict rejected</span>}
+                    {s.operation === "chat" && s.cost_usd != null && <span className="text-ink-2 tabular-nums">{money(s.cost_usd)}</span>}
                     {s.status === "error" && <span className="font-medium text-high">Failed</span>}
                     <span className="w-14 text-right text-ink-3 tabular-nums">{duration(s.duration_ms)}</span>
                   </span>

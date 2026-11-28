@@ -1,4 +1,5 @@
-"""Deterministic, rule-based classification of collected Resources. Pure: no AWS or LLM calls."""
+"""Deterministic, rule-based classification of collected Resources. Pure: no AWS or LLM calls.
+An accepted LLM verdict can override the AI and agent decision; every other field still comes from the rules."""
 import json
 import re
 from dataclasses import dataclass, field
@@ -85,7 +86,7 @@ def _unique(items):
     return list(dict.fromkeys(i for i in items if i))
 
 
-def classify(resource: Resource) -> Classification:
+def classify(resource: Resource, verdict: dict | None = None) -> Classification:
     r = resource
     code = "\n".join(r.code.values())
     definition = json.dumps(r.config.get("definition", {}))
@@ -135,6 +136,9 @@ def classify(resource: Resource) -> Classification:
         add(agent, "tool_choice_auto", 'tool_choice="auto"')
     agent_score = round(min(1.0, sum((e.weight for e in agent), 0.0)), 3)
     is_agent = is_ai and agent_score >= AGENT_THRESHOLD
+    if verdict:
+        is_ai, is_agent = verdict["is_ai"], verdict["is_ai"] and verdict["is_agent"]
+        ai += [Evidence("llm_quote", 0.0, q) for q in verdict.get("evidence_quotes", [])]
 
     ai_actions = [a for a in r.iam_actions if AI_ACTION.search(a)]
     # shortcut: AI resources report no unused AI permissions; upgrade by mapping each action to the calls that use it
@@ -144,7 +148,9 @@ def classify(resource: Resource) -> Classification:
         return Classification(False, False, agent_score, None, evidence=weak, unused_ai_permissions=unused)
 
     llm_image = any(LLM_IMAGE.search(i) for i in ml_images)
-    if is_agent:
+    if verdict:
+        category = verdict["category"]
+    elif is_agent:
         category = "ai_agent"
     elif r.service == "stepfunctions":
         category = "ai_workflow"
@@ -159,12 +165,12 @@ def classify(resource: Resource) -> Classification:
         frameworks = _unique(ML_IMAGE.search(i).group(0) for i in ml_images)
     else:
         texts = [code, *r.env.values(), str(r.config.get("foundation_model", "")), definition]
-        models = _unique(m for text in texts for m in MODEL_ID.findall(text))
+        models = _unique([m for text in texts for m in MODEL_ID.findall(text)] + (verdict or {}).get("models", []))
         provider = ", ".join(_unique(f"{p}/{h}" for p, h in map(provider_for_model, models))) or None
 
     # tools
     names = TOOL_NAMES.findall(code) + r.env.get("TOOLS", "").split(",") + \
-        re.split(r"[\s,]+", r.tags.get("ai:declared-tools", ""))
+        re.split(r"[\s,]+", r.tags.get("ai:declared-tools", "")) + (verdict or {}).get("tools", [])
     tools = [{"name": n, "side_effect": n.split("_")[0] in WRITE_VERBS} for n in _unique(t.strip() for t in names)]
 
     # data sources

@@ -2,7 +2,9 @@
 from contextlib import contextmanager
 
 from app import aws
+from app.config import config
 from app.crawler.agent import CrawlerAgent
+from app.llm import make_llm
 from app.observability.agent import ObservabilityAgent
 from app.recommend.engine import recommend_all
 
@@ -23,7 +25,7 @@ def _aws_session(mode):
         yield aws.session()
 
 
-def run_discovery(conn, mode, until="recommend") -> dict:
+def run_discovery(conn, mode, until="recommend", llm=None) -> dict:
     """Runs the steps up to and including `until`. Raises DiscoveryRunning if another run holds the lock."""
     steps = STEPS[:STEPS.index(until) + 1]
     # session-level lock: held across the steps' own commits, released in finally
@@ -31,8 +33,10 @@ def run_discovery(conn, mode, until="recommend") -> dict:
         conn.rollback()
         raise DiscoveryRunning("a discovery run is already in progress")
     try:
+        # built before the mock starts, so in mock mode it still holds real credentials
+        llm = llm or (make_llm(aws.session()) if config.llm_enabled else None)
         with _aws_session(mode) as session:
-            crawl = CrawlerAgent(session, aws.lambda_code_fetcher(mode), conn).run()
+            crawl = CrawlerAgent(session, aws.lambda_code_fetcher(mode), conn, llm).run()
             observe = ObservabilityAgent(session, conn, crawl["run_id"]).run() if "observe" in steps else None
             recommendations = recommend_all(conn, crawl["run_id"]) if "recommend" in steps else None
         return {"run_id": crawl["run_id"], "mode": mode, "crawl": crawl, "observe": observe,

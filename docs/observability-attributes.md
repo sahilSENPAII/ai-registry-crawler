@@ -23,6 +23,9 @@ OpenTelemetry GenAI semantic conventions where one exists.
 | `gen_ai.data_source.id` | GenAI retrieval spans | `attributes` | Which knowledge base grounded the answer (A.7.5) |
 | `approval.action`, `approval.amount`, `approval.decision` | Custom, no GenAI equivalent | `attributes` | Evidence of human oversight on risky actions (A.9.2) |
 | `internal` | Custom | `attributes` | Marks the crawler's and this agent's own spans so they are never shadow agents |
+| `crawler.llm.*`, `crawler.decided_by.*` | Custom, on the crawler's run span | `attributes` | The LLM's model, calls, tokens, cost, step budget and whether it ran out; how many resources each method decided |
+| `crawler.guardrail` | Custom, on a crawler collector span | `attributes` | The planner never called this collector, so the guardrail ran it |
+| `crawler.resource`, `crawler.verdict.rejected` | Custom, on `inspect_resource` / `record_verdict` spans | `attributes` | Which resource the LLM looked at, and why the validator rejected its verdict |
 
 Every span keeps its full attribute map in `agent_traces.attributes`. Before storing, any
 attribute whose key matches `email|phone|ssn|card|password|address` (case-insensitive),
@@ -43,5 +46,14 @@ replace the previous set in `agent_anomalies`.
 | `token_spike` | medium | A trace's total tokens exceed both a multiple of the agent's median trace and a floor | 5x median and > 20,000 |
 | `run_error` | medium | A trace has a span with status `error` (one finding per trace) | - |
 | `approval_denied` | low | A `human_approval` span returned `denied`; the agent stopped, so this is informational | - |
+
+The crawler (`aws-ai-crawler`) writes its own spans straight to `agent_traces`; these rules run over them:
+
+| Rule | Severity | Fires when | Threshold |
+|---|---|---|---|
+| `collector_failed` | medium | A collector span has status `error`, for example AccessDenied | - |
+| `llm_verdict_rejected` | medium | The validator rejected a `record_verdict` call (quote or model not in what was collected, inconsistent category) | - |
+| `slow_run` | low | A crawl took longer than a multiple of the median crawl | 3x median |
+| `llm_budget_exceeded` | low | The planner was still calling tools when it hit `LLM_MAX_STEPS`; the rules covered the rest | `LLM_MAX_STEPS` |
 
 Thresholds live in `THRESHOLDS` at the top of the agent module.

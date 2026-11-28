@@ -34,7 +34,8 @@ export default async function AgentPage({ params, searchParams }: {
       <Link href="/agents" className="text-sm text-ink-3 hover:text-ink">Agent activity</Link>
       <header className="mt-2 mb-8 flex items-center gap-3">
         <h1 className="text-[28px] leading-tight font-medium">{name}</h1>
-        {agent && !agent.registered && <Tag tone="warn">Shadow agent, not registered</Tag>}
+        {agent?.internal && <Tag tone="accent">Our crawler</Tag>}
+        {agent && !agent.registered && !agent.internal && <Tag tone="warn">Shadow agent, not registered</Tag>}
         {agent?.registry_id && (
           <Link href={`/inventory/${agent.registry_id}`} className="ml-auto text-sm font-medium text-accent hover:underline">
             Inventory record

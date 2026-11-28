@@ -13,7 +13,7 @@ Every other table points back here through `run_id` / `last_run_id`.
 ## ai_registry
 One row per AI system, as the ISO/IEC 42001 AI inventory sees it: a Bedrock agent, a
 SageMaker endpoint, a Lambda that calls an LLM, and so on. The row says what the
-system is (category, agent score and evidence), what it uses (models, tools, data and
+system is (category, agent score and evidence, and whether the rules or the LLM decided), what it uses (models, tools, data and
 its classification), who is accountable (owner, environment, oversight), how risky it
 is (score, level, factors, Annex A controls), whether it is monitored, and its
 lifecycle (first/last seen, active or retired).

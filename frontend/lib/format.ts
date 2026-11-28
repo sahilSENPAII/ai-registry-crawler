@@ -63,6 +63,16 @@ export const RULE: Record<string, string> = {
   token_spike: "Unusually large run",
   run_error: "Run failed",
   approval_denied: "Approver said no",
+  collector_failed: "A collector failed",
+  slow_run: "Unusually slow crawl",
+  llm_verdict_rejected: "LLM verdict rejected",
+  llm_budget_exceeded: "Planner ran out of steps",
+};
+
+export const DECIDED_BY: Record<string, string> = {
+  rules: "Rules",
+  llm: "LLM, checked against the evidence",
+  rules_fallback: "Rules, after the LLM verdict was not accepted",
 };
 
 export const OPERATION: Record<string, string> = {
@@ -88,6 +98,7 @@ export const SIGNAL: Record<string, string> = {
   iteration_budget: "Has a limit on steps per run",
   tool_choice_auto: "Lets the model pick tools",
   iam_permission_only: "Only holds an AI permission",
+  llm_quote: "Quoted by the LLM",
 };
 
 // shortcut: display names for the catalog's model ids; extend when the catalog grows
@@ -103,10 +114,17 @@ const MODEL_NAMES: Record<string, string> = {
   "amazon.nova-micro-v1:0": "Nova Micro",
   "gpt-4o": "GPT-4o",
   "gpt-4o-mini": "GPT-4o mini",
+  "anthropic.claude-haiku-5-5": "Claude Haiku 5.5",
+  "anthropic.claude-sonnet-5-5": "Claude Sonnet 5.5",
+  "gemini-3-flash-preview": "Gemini 3 Flash",
+  "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+  "openai/gpt-oss-20b": "gpt-oss-20b",
+  "openai/gpt-oss-120b": "gpt-oss-120b",
 };
 
 export function modelName(id: string | null | undefined): string {
-  return id ? (MODEL_NAMES[id] ?? id) : "-";
+  // inference profiles carry a geo prefix such as au. or global.
+  return id ? (MODEL_NAMES[id.replace(/^(us|eu|apac|au|jp|global)\./, "")] ?? id) : "-";
 }
 
 export function label(map: Record<string, string>, key: string | null | undefined): string {

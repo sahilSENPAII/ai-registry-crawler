@@ -92,11 +92,13 @@ def test_system_detail(client):
 
 def test_agents(client):
     agents = get(client, "/agents")
-    assert len(agents) == 5
+    assert len(agents) == 6
     assert sum(a["registered"] for a in agents) == 4
-    shadow = next(a for a in agents if not a["registered"])
+    shadow = next(a for a in agents if not a["registered"] and not a["internal"])
     assert shadow["name"] == "marketing-copy-agent" and shadow["findings"] == 1
-    assert not INTERNAL_AGENTS & {a["name"] for a in agents}
+    crawler = next(a for a in agents if a["internal"])
+    assert crawler["name"] == "aws-ai-crawler" and crawler["runs"] == 1
+    assert "ai-observability-agent" not in {a["name"] for a in agents}
     with_internal = {a["name"] for a in get(client, "/agents?include_internal=true")}
     assert INTERNAL_AGENTS <= with_internal and len(with_internal) == 7
 

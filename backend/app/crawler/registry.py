@@ -113,7 +113,8 @@ def controls_for(record: dict) -> list[dict]:
     return [{"ref": ref, "title": title, "why": why} for ref, (title, applies, why) in CONTROLS.items() if applies(record)]
 
 
-def build_record(resource: Resource, classification: Classification, run_id: int) -> dict:
+def build_record(resource: Resource, classification: Classification, run_id: int, decided_by: str = "rules",
+                 llm_verdict: dict | None = None) -> dict:
     r, c = resource, classification
     customer_facing = {"true": True, "false": False}.get(r.tags.get("customer-facing", "").lower())
     record = {
@@ -127,6 +128,8 @@ def build_record(resource: Resource, classification: Classification, run_id: int
         "is_agent": c.is_agent,
         "agent_score": c.agent_score,
         "evidence": [asdict(e) for e in c.evidence],
+        "decided_by": decided_by,
+        "llm_verdict": llm_verdict,
         "models": c.models,
         "provider": c.provider,
         "frameworks": c.frameworks,

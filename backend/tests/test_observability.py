@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.observability.agent import detect_anomalies, normalise
+from app.observability.agent import detect_anomalies, detect_crawler_anomalies, normalise
 
 REFUND = {"id": "r1", "tools": [{"name": "lookup_order"}, {"name": "issue_refund"}], "approval_threshold": 500.0}
 
@@ -107,3 +107,28 @@ def test_approval_denied():
     findings = detect_anomalies([approval("issue_refund", 750.0, "denied", 1)], {"refund-agent": REFUND})
     assert rules(findings) == ["approval_denied"] and findings[0]["severity"] == "low"
     assert findings[0]["description"] == "approver denied issue_refund of $750; the agent stopped"
+
+
+def crawler_span(op, duration_ms=1000, tool=None, status="ok", **attrs):
+    return {"trace_id": f"t{duration_ms}", "span_id": f"s{duration_ms}{tool}", "operation": op, "tool_name": tool,
+            "duration_ms": duration_ms, "status": status, "error_type": "RuntimeError" if status == "error" else None,
+            "attributes": attrs}
+
+
+def test_crawler_rules():
+    spans = [
+        crawler_span("invoke_agent", 1000), crawler_span("invoke_agent", 1200), crawler_span("invoke_agent", 5000),
+        crawler_span("invoke_agent", 900, **{"crawler.llm.budget_exceeded": True, "crawler.llm.max_steps": 12}),
+        crawler_span("execute_tool", tool="collect_sagemaker", status="error"),
+        crawler_span("execute_tool", tool="record_verdict",
+                     **{"crawler.resource": "order-fulfilment", "crawler.verdict.rejected": ["unknown category 'x'"]}),
+    ]
+    findings = {f["rule"]: f for f in detect_crawler_anomalies(spans)}
+    assert sorted(findings) == ["collector_failed", "llm_budget_exceeded", "llm_verdict_rejected", "slow_run"]
+    assert findings["slow_run"]["details"]["duration_ms"] == 5000 and findings["slow_run"]["severity"] == "low"
+    assert findings["collector_failed"]["description"] == "collect_sagemaker failed with RuntimeError"
+    assert all(f["agent_name"] == "aws-ai-crawler" and f["registry_id"] is None for f in findings.values())
+
+
+def test_steady_crawls_are_not_slow():
+    assert detect_crawler_anomalies([crawler_span("invoke_agent", d) for d in (1000, 1100, 2900)]) == []

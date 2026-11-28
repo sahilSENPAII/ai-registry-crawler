@@ -1,4 +1,4 @@
-"""Ground truth for the simulated estate. Only tests read this; the crawler must never import it."""
+"""Ground truth for the simulated estate. Only tests and the evaluation read this; the crawler must never import it."""
 
 AGENT = {"is_ai": True, "is_agent": True, "category": "ai_agent"}
 GENAI = {"is_ai": True, "is_agent": False, "category": "genai_application"}

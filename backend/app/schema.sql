@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS ai_registry (
     is_agent                 boolean,
     agent_score              numeric(4,3),
     evidence                 jsonb NOT NULL DEFAULT '[]',
+    decided_by               text NOT NULL DEFAULT 'rules' CHECK (decided_by IN ('rules', 'llm', 'rules_fallback')),
+    llm_verdict              jsonb,  -- the LLM's verdict, with why it was rejected when decided_by = rules_fallback
     -- what it uses
     models                   jsonb,
     provider                 text,
@@ -100,7 +102,8 @@ CREATE TABLE IF NOT EXISTS agent_anomalies (
     registry_id text REFERENCES ai_registry(id),
     agent_name  text NOT NULL,
     rule        text CHECK (rule IN ('unregistered_agent', 'undeclared_tool', 'side_effect_without_approval',
-                                     'tool_loop', 'token_spike', 'run_error', 'approval_denied')),
+                                     'tool_loop', 'token_spike', 'run_error', 'approval_denied',
+                                     'collector_failed', 'slow_run', 'llm_verdict_rejected', 'llm_budget_exceeded')),
     severity    text CHECK (severity IN ('low', 'medium', 'high', 'critical')),
     trace_id    text,
     span_id     text,
